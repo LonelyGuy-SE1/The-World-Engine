@@ -12,6 +12,12 @@ interface ControlPanelProps {
   onStep: () => void;
   renderConfig: RenderConfig;
   onUpdateRenderConfig: (config: Partial<RenderConfig>) => void;
+  placementTool: string;
+  onSetPlacementTool: (tool: string) => void;
+  placementRadius: number;
+  onSetPlacementRadius: (r: number) => void;
+  placementIntensity: number;
+  onSetPlacementIntensity: (i: number) => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -22,6 +28,12 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   onStep,
   renderConfig,
   onUpdateRenderConfig,
+  placementTool,
+  onSetPlacementTool,
+  placementRadius,
+  onSetPlacementRadius,
+  placementIntensity,
+  onSetPlacementIntensity,
 }) => {
   if (!instance) return null;
 
@@ -38,7 +50,15 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           className={`btn ${isRunning ? "btn-warning" : "btn-primary"}`}
           onClick={onTogglePlay}
         >
-          {isRunning ? <><PauseIcon size={12} /> Pause</> : <><PlayIcon size={12} /> Play</>}
+          {isRunning ? (
+            <>
+              <PauseIcon size={12} /> Pause
+            </>
+          ) : (
+            <>
+              <PlayIcon size={12} /> Play
+            </>
+          )}
         </button>
         <button
           className="btn btn-secondary"
@@ -144,6 +164,115 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           Agent Vision
         </label>
       </div>
+
+      {renderConfig.showTemperature && (
+        <div className="control-row">
+          <label>
+            Temp Opacity: {Math.round(renderConfig.temperatureOpacity * 100)}%
+          </label>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={Math.round(renderConfig.temperatureOpacity * 100)}
+            onChange={(e) =>
+              onUpdateRenderConfig({
+                temperatureOpacity: parseInt(e.target.value) / 100,
+              })
+            }
+          />
+        </div>
+      )}
+      {renderConfig.showResources && (
+        <div className="control-row">
+          <label>
+            Resource Opacity: {Math.round(renderConfig.resourceOpacity * 100)}%
+          </label>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={Math.round(renderConfig.resourceOpacity * 100)}
+            onChange={(e) =>
+              onUpdateRenderConfig({
+                resourceOpacity: parseInt(e.target.value) / 100,
+              })
+            }
+          />
+        </div>
+      )}
+      {renderConfig.showHazards && (
+        <div className="control-row">
+          <label>
+            Hazard Opacity: {Math.round(renderConfig.hazardOpacity * 100)}%
+          </label>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={Math.round(renderConfig.hazardOpacity * 100)}
+            onChange={(e) =>
+              onUpdateRenderConfig({
+                hazardOpacity: parseInt(e.target.value) / 100,
+              })
+            }
+          />
+        </div>
+      )}
+
+      <h4>Placement Tools</h4>
+      <div className="control-row">
+        <button
+          className={`btn btn-sm ${placementTool === "none" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => onSetPlacementTool("none")}
+        >
+          Select
+        </button>
+        <button
+          className={`btn btn-sm ${placementTool === "resource" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => onSetPlacementTool("resource")}
+        >
+          + Resource
+        </button>
+        <button
+          className={`btn btn-sm ${placementTool === "hazard" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => onSetPlacementTool("hazard")}
+        >
+          + Hazard
+        </button>
+        <button
+          className={`btn btn-sm ${placementTool === "erase" ? "btn-primary" : "btn-secondary"}`}
+          onClick={() => onSetPlacementTool("erase")}
+        >
+          Erase
+        </button>
+      </div>
+      {placementTool !== "none" && (
+        <>
+          <div className="control-row">
+            <label>Radius: {placementRadius}</label>
+            <input
+              type="range"
+              min="1"
+              max="20"
+              value={placementRadius}
+              onChange={(e) => onSetPlacementRadius(parseInt(e.target.value))}
+            />
+          </div>
+          <div className="control-row">
+            <label>Intensity: {Math.round(placementIntensity * 100)}%</label>
+            <input
+              type="range"
+              min="1"
+              max="100"
+              value={Math.round(placementIntensity * 100)}
+              onChange={(e) =>
+                onSetPlacementIntensity(parseInt(e.target.value) / 100)
+              }
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 };

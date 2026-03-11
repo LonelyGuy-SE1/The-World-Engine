@@ -14,7 +14,13 @@ import { InspectorPanel } from "./ui/InspectorPanel";
 import { ExperimentPanel } from "./ui/ExperimentPanel";
 import { DashboardPanel } from "./ui/DashboardPanel";
 import { WorldSelector } from "./ui/WorldSelector";
-import { GearIcon, SearchIcon, FlaskIcon, ChartIcon, GlobeIcon } from "./ui/Icons";
+import {
+  GearIcon,
+  SearchIcon,
+  FlaskIcon,
+  ChartIcon,
+  GlobeIcon,
+} from "./ui/Icons";
 import "./App.css";
 
 type SideTab = "control" | "inspector" | "experiment" | "dashboard" | "worlds";
@@ -36,6 +42,9 @@ export const App: React.FC = () => {
     DEFAULT_RENDER_CONFIG,
   );
   const [instances, setInstances] = useState<SimulationInstance[]>([]);
+  const [placementTool, setPlacementTool] = useState("none");
+  const [placementRadius, setPlacementRadius] = useState(5);
+  const [placementIntensity, setPlacementIntensity] = useState(0.5);
 
   // Initialize with a default world
   useEffect(() => {
@@ -91,9 +100,40 @@ export const App: React.FC = () => {
     if (agent) setActiveTab("inspector");
   }, []);
 
-  const handleSelectTile = useCallback((x: number, y: number) => {
-    setSelectedTile({ x, y });
-  }, []);
+  const handleSelectTile = useCallback(
+    (x: number, y: number) => {
+      setSelectedTile({ x, y });
+
+      if (placementTool !== "none" && activeInstance) {
+        const world = activeInstance.world;
+        const r = placementRadius;
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (dx * dx + dy * dy > r * r) continue;
+            const nx = x + dx;
+            const ny = y + dy;
+            if (!world.isValid(nx, ny)) continue;
+            const tile = world.tileAt(nx, ny);
+            if (placementTool === "resource") {
+              tile.foodResource = Math.min(
+                100,
+                tile.foodResource + placementIntensity * 50,
+              );
+            } else if (placementTool === "hazard") {
+              tile.hazard = Math.min(1, tile.hazard + placementIntensity);
+            } else if (placementTool === "erase") {
+              tile.hazard = Math.max(0, tile.hazard - placementIntensity);
+              tile.foodResource = Math.max(
+                0,
+                tile.foodResource - placementIntensity * 50,
+              );
+            }
+          }
+        }
+      }
+    },
+    [placementTool, placementRadius, placementIntensity, activeInstance],
+  );
 
   const handleUpdateRenderConfig = useCallback(
     (update: Partial<RenderConfig>) => {
@@ -217,6 +257,12 @@ export const App: React.FC = () => {
                 onStep={handleStep}
                 renderConfig={renderConfig}
                 onUpdateRenderConfig={handleUpdateRenderConfig}
+                placementTool={placementTool}
+                onSetPlacementTool={setPlacementTool}
+                placementRadius={placementRadius}
+                onSetPlacementRadius={setPlacementRadius}
+                placementIntensity={placementIntensity}
+                onSetPlacementIntensity={setPlacementIntensity}
               />
             )}
             {activeTab === "inspector" && (

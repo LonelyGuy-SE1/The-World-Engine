@@ -192,8 +192,11 @@ export function createRandomAgent(
   return createAgent(x, y, species, genome, tick, 0, null);
 }
 
+const _inputBuffer = new Float32Array(INPUT_SIZE);
+
 export function buildInputVector(agent: Agent, world: World, nearbyAgents: Agent[]): Float32Array {
-  const input = new Float32Array(INPUT_SIZE);
+  const input = _inputBuffer;
+  input.fill(0);
   let idx = 0;
 
   input[idx++] = agent.energy / 100;
@@ -283,9 +286,20 @@ export function buildInputVector(agent: Agent, world: World, nearbyAgents: Agent
   return input;
 }
 
+const brainCache = new WeakMap<Float32Array, NeuralNet>();
+
+function getCachedBrain(weights: Float32Array): NeuralNet {
+  let brain = brainCache.get(weights);
+  if (!brain) {
+    brain = new NeuralNet(BRAIN_CONFIG, weights);
+    brainCache.set(weights, brain);
+  }
+  return brain;
+}
+
 export function decideAction(agent: Agent, world: World, nearbyAgents: Agent[]): AgentAction {
   const input = buildInputVector(agent, world, nearbyAgents);
-  const brain = new NeuralNet(BRAIN_CONFIG, agent.genome.brainWeights);
+  const brain = getCachedBrain(agent.genome.brainWeights);
   const output = brain.forward(input);
 
   let r = Math.random();
@@ -298,7 +312,7 @@ export function decideAction(agent: Agent, world: World, nearbyAgents: Agent[]):
 
 export function executeAction(
   agent: Agent, action: AgentAction, world: World,
-  agentGrid: Map<string, Agent[]>
+  agentGrid: Map<number, Agent[]>
 ): void {
   agent.lastAction = action;
   const traits = agent.genome.traits;
@@ -315,12 +329,14 @@ export function executeAction(
 
       if (world.isPassable(nx, ny)) {
         const tile = world.tileAt(nx, ny);
-        const moveCost = TERRAIN_MOVEMENT_COST[tile.terrain] * traits.size / traits.speed;
+        const tileIdx = world.tileIndex(agent.x, agent.y);
+        const windFactor = 1 - (world.windX[tileIdx] * dx + world.windY[tileIdx] * dy) * 0.5;
+        const moveCost = TERRAIN_MOVEMENT_COST[tile.terrain] * traits.size / traits.speed * Math.max(0.5, windFactor);
         if (agent.energy >= moveCost) {
-          removeFromGrid(agentGrid, agent);
+          removeFromGrid(agentGrid, agent, world.width);
           agent.x = nx;
           agent.y = ny;
-          addToGrid(agentGrid, agent);
+          addToGrid(agentGrid, agent, world.width);
           agent.energy -= moveCost;
 
           agent.psychology.curiosity = Math.max(0, agent.psychology.curiosity - 0.01);
@@ -346,7 +362,7 @@ export function executeAction(
     case AgentAction.Reproduce: {
       const energyThreshold = traits.reproductionThreshold * 100;
       if (agent.energy >= energyThreshold) {
-        const key = `${agent.x},${agent.y}`;
+        const key = gridKey(agent.x, agent.y, world.width);
         const here = agentGrid.get(key) || [];
         const mate = here.find(a =>
           a.id !== agent.id &&
@@ -381,7 +397,7 @@ export function executeAction(
     }
 
     case AgentAction.Attack: {
-      const key = `${agent.x},${agent.y}`;
+      const key = gridKey(agent.x, agent.y, world.width);
       const here = agentGrid.get(key) || [];
       const target = here.find(a => a.id !== agent.id && a.alive);
       if (target) {
@@ -504,8 +520,12 @@ function findEmptyAdjacent(x: number, y: number, world: World): { x: number; y: 
   return null;
 }
 
-export function addToGrid(grid: Map<string, Agent[]>, agent: Agent): void {
-  const key = `${agent.x},${agent.y}`;
+export function gridKey(x: number, y: number, width: number): number {
+  return y * width + x;
+}
+
+export function addToGrid(grid: Map<number, Agent[]>, agent: Agent, width: number = 0): void {
+  const key = width > 0 ? gridKey(agent.x, agent.y, width) : agent.y * 16384 + agent.x;
   const list = grid.get(key);
   if (list) {
     list.push(agent);
@@ -514,8 +534,8 @@ export function addToGrid(grid: Map<string, Agent[]>, agent: Agent): void {
   }
 }
 
-export function removeFromGrid(grid: Map<string, Agent[]>, agent: Agent): void {
-  const key = `${agent.x},${agent.y}`;
+export function removeFromGrid(grid: Map<number, Agent[]>, agent: Agent, width: number = 0): void {
+  const key = width > 0 ? gridKey(agent.x, agent.y, width) : agent.y * 16384 + agent.x;
   const list = grid.get(key);
   if (list) {
     const idx = list.indexOf(agent);
@@ -524,10 +544,10 @@ export function removeFromGrid(grid: Map<string, Agent[]>, agent: Agent): void {
   }
 }
 
-export function rebuildGrid(agents: Agent[]): Map<string, Agent[]> {
-  const grid = new Map<string, Agent[]>();
+export function rebuildGrid(agents: Agent[], width: number = 0): Map<number, Agent[]> {
+  const grid = new Map<number, Agent[]>();
   for (const agent of agents) {
-    if (agent.alive) addToGrid(grid, agent);
+    if (agent.alive) addToGrid(grid, agent, width);
   }
   return grid;
 }

@@ -12,6 +12,8 @@ export class World {
   globalTemperatureOffset: number = 0;
   seasonAngle: number = 0;
   weatherPatterns: Float32Array;
+  windX: Float32Array;
+  windY: Float32Array;
 
   constructor(config: Partial<WorldConfig> = {}) {
     this.config = { ...DEFAULT_WORLD_CONFIG, ...config };
@@ -20,6 +22,8 @@ export class World {
     this.rng = new SeededRandom(this.config.seed);
     this.tiles = new Array(this.width * this.height);
     this.weatherPatterns = new Float32Array(this.width * this.height);
+    this.windX = new Float32Array(this.width * this.height);
+    this.windY = new Float32Array(this.width * this.height);
 
     this.generateTerrain();
   }
@@ -201,6 +205,7 @@ export class World {
     // Update weather patterns slowly
     if (tick % 50 === 0) {
       this.updateWeatherPatterns();
+      this.updateWind();
     }
 
     for (let i = 0; i < this.tiles.length; i++) {
@@ -223,6 +228,10 @@ export class World {
       }
 
       tile.pheromone *= 0.98;
+
+      if (tile.hazard > 0.001) {
+        tile.hazard *= 0.999;
+      }
 
       if (tile.terrain !== Terrain.DeepWater) {
         tile.energy = Math.min(100, tile.energy + 0.1 * Math.max(0, tempFactor(tile.temperature)));
@@ -251,6 +260,25 @@ export class World {
       }
     }
     this.weatherPatterns.set(temp);
+  }
+
+  private updateWind(): void {
+    const w = this.width;
+    const h = this.height;
+    const globalWindX = Math.cos(this.seasonAngle * 2) * 0.5;
+    const globalWindY = Math.sin(this.seasonAngle) * 0.3;
+
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const idx = y * w + x;
+        const tL = this.tiles[idx - 1].temperature;
+        const tR = this.tiles[idx + 1].temperature;
+        const tU = this.tiles[idx - w].temperature;
+        const tD = this.tiles[idx + w].temperature;
+        this.windX[idx] = globalWindX + (tL - tR) * 0.02;
+        this.windY[idx] = globalWindY + (tU - tD) * 0.02;
+      }
+    }
   }
 
   getTilesInRadius(cx: number, cy: number, radius: number): { tile: Tile; x: number; y: number }[] {

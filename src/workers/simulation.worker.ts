@@ -5,7 +5,7 @@ import { World } from '../engine/World';
 import {
   SpeciesRegistry, createRandomAgent, randomTraits, decideAction,
   executeAction, updateAgentLifecycle, applyTemperatureStress,
-  addToGrid, rebuildGrid
+  addToGrid, rebuildGrid, gridKey
 } from '../engine/Agent';
 
 export type WorkerInMessage =
@@ -35,7 +35,7 @@ export type WorkerOutMessage =
 
 let world: World | null = null;
 let agents: Agent[] = [];
-let agentGrid: Map<string, Agent[]> = new Map();
+let agentGrid: Map<number, Agent[]> = new Map();
 let speciesRegistry: SpeciesRegistry = new SpeciesRegistry();
 let tick = 0;
 let running = false;
@@ -64,7 +64,7 @@ self.onmessage = (e: MessageEvent<WorkerInMessage>) => {
           for (let a = 0; a < agentsPerSpecies; a++) {
             const agent = createRandomAgent(world, sp.id, traits, 0, world.rng);
             agents.push(agent);
-            addToGrid(agentGrid, agent);
+            addToGrid(agentGrid, agent, config.width);
             speciesRegistry.updatePopulation(sp.id, 1);
           }
         }
@@ -148,7 +148,7 @@ function simulateTick(): void {
     const nearbyAgents: Agent[] = [];
     for (let dy = -pr; dy <= pr; dy++) {
       for (let dx = -pr; dx <= pr; dx++) {
-        const key = `${agent.x + dx},${agent.y + dy}`;
+        const key = gridKey(agent.x + dx, agent.y + dy, world.width);
         const atTile = agentGrid.get(key);
         if (atTile) {
           for (const a of atTile) {
@@ -180,7 +180,7 @@ function simulateTick(): void {
   for (const child of newChildren) {
     if (agents.length < world.config.maxAgents) {
       agents.push(child);
-      addToGrid(agentGrid, child);
+      addToGrid(agentGrid, child, world.width);
       speciesRegistry.updatePopulation(child.species, 1);
     }
   }
@@ -190,7 +190,7 @@ function simulateTick(): void {
       const dead = agents[i];
       speciesRegistry.updatePopulation(dead.species, -1);
 
-      const key = `${dead.x},${dead.y}`;
+      const key = gridKey(dead.x, dead.y, world.width);
       const list = agentGrid.get(key);
       if (list) {
         const idx = list.indexOf(dead);

@@ -7,7 +7,8 @@ import { World } from './World';
 import {
   SpeciesRegistry, createRandomAgent, randomTraits, decideAction,
   executeAction, updateAgentLifecycle, applyTemperatureStress,
-  addToGrid, rebuildGrid, createAgent, BRAIN_CONFIG, resetAgentIds
+  addToGrid, rebuildGrid, createAgent, BRAIN_CONFIG, resetAgentIds,
+  gridKey
 } from './Agent';
 import { NeuralNet } from './NeuralNet';
 
@@ -16,7 +17,7 @@ export interface SimulationInstance {
   name: string;
   world: World;
   agents: Agent[];
-  agentGrid: Map<string, Agent[]>;
+  agentGrid: Map<number, Agent[]>;
   speciesRegistry: SpeciesRegistry;
   tick: number;
   state: SimulationState;
@@ -42,7 +43,7 @@ export class Simulation {
     const rng = world.rng;
 
     const agents: Agent[] = [];
-    const agentGrid = new Map<string, Agent[]>();
+    const agentGrid = new Map<number, Agent[]>();
     const agentsPerSpecies = Math.floor(fullConfig.initialAgents / fullConfig.initialSpecies);
 
     for (let s = 0; s < fullConfig.initialSpecies; s++) {
@@ -52,7 +53,7 @@ export class Simulation {
       for (let a = 0; a < agentsPerSpecies; a++) {
         const agent = createRandomAgent(world, speciesInfo.id, traits, 0, rng);
         agents.push(agent);
-        addToGrid(agentGrid, agent);
+        addToGrid(agentGrid, agent, fullConfig.width);
         speciesRegistry.updatePopulation(speciesInfo.id, 1);
       }
     }
@@ -128,7 +129,7 @@ export class Simulation {
       for (let dy = -pr; dy <= pr; dy++) {
         for (let dx = -pr; dx <= pr; dx++) {
           if (dx === 0 && dy === 0) continue;
-          const key = `${agent.x + dx},${agent.y + dy}`;
+          const key = gridKey(agent.x + dx, agent.y + dy, world.width);
           const atTile = agentGrid.get(key);
           if (atTile) {
             for (const a of atTile) {
@@ -137,7 +138,7 @@ export class Simulation {
           }
         }
       }
-      const ownKey = `${agent.x},${agent.y}`;
+      const ownKey = gridKey(agent.x, agent.y, world.width);
       const ownTile = agentGrid.get(ownKey);
       if (ownTile) {
         for (const a of ownTile) {
@@ -169,7 +170,7 @@ export class Simulation {
     for (const child of newChildren) {
       if (agents.length < world.config.maxAgents) {
         agents.push(child);
-        addToGrid(agentGrid, child);
+        addToGrid(agentGrid, child, world.width);
         speciesRegistry.updatePopulation(child.species, 1);
         this.onAgentBirth?.(instance.id, child);
       }
@@ -180,7 +181,7 @@ export class Simulation {
         const dead = agents[i];
         speciesRegistry.updatePopulation(dead.species, -1);
 
-        const key = `${dead.x},${dead.y}`;
+        const key = gridKey(dead.x, dead.y, world.width);
         const list = agentGrid.get(key);
         if (list) {
           const idx = list.indexOf(dead);
@@ -217,10 +218,12 @@ export class Simulation {
 
   step(ticksPerFrame: number = this.speed): void {
     const count = Math.min(ticksPerFrame, this.maxTicksPerFrame);
+    const deadline = performance.now() + 12; // ~12ms budget to leave room for rendering
     for (const instance of this.instances.values()) {
       if (instance.state === SimulationState.Running) {
         for (let i = 0; i < count; i++) {
           this.tick(instance);
+          if (performance.now() >= deadline) break;
         }
       }
     }
@@ -270,7 +273,7 @@ export class Simulation {
         for (let i = 0; i < count; i++) {
           const agent = createRandomAgent(world, sp.id, traits, instance.tick, world.rng);
           agents.push(agent);
-          addToGrid(agentGrid, agent);
+          addToGrid(agentGrid, agent, world.width);
           speciesRegistry.updatePopulation(sp.id, 1);
         }
         break;

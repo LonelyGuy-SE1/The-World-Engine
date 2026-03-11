@@ -11,6 +11,9 @@ export interface RenderConfig {
   showResources: boolean;
   showHazards: boolean;
   selectedAgentId: number | null;
+  temperatureOpacity: number;
+  resourceOpacity: number;
+  hazardOpacity: number;
 }
 
 export const DEFAULT_RENDER_CONFIG: RenderConfig = {
@@ -22,6 +25,9 @@ export const DEFAULT_RENDER_CONFIG: RenderConfig = {
   showResources: false,
   showHazards: false,
   selectedAgentId: null,
+  temperatureOpacity: 0.6,
+  resourceOpacity: 0.4,
+  hazardOpacity: 0.5,
 };
 
 export class CanvasRenderer {
@@ -138,9 +144,9 @@ export class CanvasRenderer {
         const t = (tile.temperature + 30) / 70;
         const clamped = Math.max(0, Math.min(1, t));
         if (clamped > 0.5) {
-          ctx.fillStyle = `rgba(255, 0, 0, ${(clamped - 0.5) * 0.6})`;
+          ctx.fillStyle = `rgba(255, 0, 0, ${(clamped - 0.5) * this.config.temperatureOpacity})`;
         } else {
-          ctx.fillStyle = `rgba(0, 0, 255, ${(0.5 - clamped) * 0.6})`;
+          ctx.fillStyle = `rgba(0, 0, 255, ${(0.5 - clamped) * this.config.temperatureOpacity})`;
         }
         ctx.fillRect(x * ts, y * ts, ts, ts);
       }
@@ -155,7 +161,7 @@ export class CanvasRenderer {
       for (let x = sx; x < ex; x++) {
         const tile = world.tileAt(x, y);
         const r = tile.foodResource / 100;
-        ctx.fillStyle = `rgba(0, 255, 0, ${r * 0.4})`;
+        ctx.fillStyle = `rgba(0, 255, 0, ${r * this.config.resourceOpacity})`;
         ctx.fillRect(x * ts, y * ts, ts, ts);
       }
     }
@@ -169,7 +175,7 @@ export class CanvasRenderer {
       for (let x = sx; x < ex; x++) {
         const tile = world.tileAt(x, y);
         if (tile.hazard > 0) {
-          ctx.fillStyle = `rgba(255, 0, 255, ${tile.hazard * 0.5})`;
+          ctx.fillStyle = `rgba(255, 0, 255, ${tile.hazard * this.config.hazardOpacity})`;
           ctx.fillRect(x * ts, y * ts, ts, ts);
         }
       }
