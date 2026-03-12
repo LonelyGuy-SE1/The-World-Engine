@@ -155,7 +155,7 @@ export const ExperimentPanel: React.FC<ExperimentPanelProps> = ({
       <div className="param-fields">
         {selectedType === InterventionType.TemperatureShift && (
           <div className="field">
-            <label>Temperature Change (°C)</label>
+            <label>Temperature Change (°C, negative = cooling)</label>
             <input
               type="number"
               value={params.amount || 0}
@@ -163,6 +163,9 @@ export const ExperimentPanel: React.FC<ExperimentPanelProps> = ({
                 setParams({ amount: parseFloat(e.target.value) })
               }
               step="1"
+              min="-200"
+              max="200"
+              placeholder="-20 to +50"
             />
           </div>
         )}

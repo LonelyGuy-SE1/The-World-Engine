@@ -749,6 +749,75 @@ body {
   transition: border-color 0.2s ease;
 }
 
+/* --- Number input spinner buttons --- */
+.field input[type="number"] {
+  -moz-appearance: textfield;
+  padding-right: 28px;
+}
+
+.field input[type="number"]::-webkit-inner-spin-button,
+.field input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.field {
+  position: relative;
+}
+
+.field:has(input[type="number"])::after,
+.field:has(input[type="number"])::before {
+  content: "";
+  position: absolute;
+  right: 6px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  pointer-events: none;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+
+.field:has(input[type="number"])::after {
+  bottom: 10px;
+  border-top: 5px solid #c4972a;
+}
+
+.field:has(input[type="number"])::before {
+  bottom: 19px;
+  border-bottom: 5px solid #c4972a;
+}
+
+.field:has(input[type="number"]:hover)::after,
+.field:has(input[type="number"]:hover)::before {
+  opacity: 0.85;
+}
+
+/* Also style number inputs in control rows */
+.control-row input[type="number"] {
+  width: 60px;
+  padding: 5px 8px;
+  border: 1px solid #2a241e;
+  border-radius: 4px;
+  background: #110f0c;
+  color: #c4b8a6;
+  font-size: 11px;
+  outline: none;
+  -moz-appearance: textfield;
+  transition: border-color 0.2s;
+}
+
+.control-row input[type="number"]:focus {
+  border-color: rgba(196, 151, 42, 0.4);
+}
+
+.control-row input[type="number"]::-webkit-inner-spin-button,
+.control-row input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .field input:focus {
   border-color: rgba(196, 151, 42, 0.4);
 }
@@ -1251,4 +1320,129 @@ body {
   background: rgba(255, 255, 255, 0.03);
   border-color: #241f18;
   color: #685c4e;
+}
+
+/* === EVENT LOG PANEL === */
+
+.event-log-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.event-summary-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.event-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  font-size: 10px;
+  transition: background 0.15s;
+}
+
+.event-summary-chip:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.event-summary-count {
+  font-weight: 600;
+  color: #e0d6c8;
+}
+
+.event-filter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.event-filter-select {
+  flex: 1;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: #1a1610;
+  border: 1px solid #2a2318;
+  color: #c0b8a8;
+  font-size: 11px;
+}
+
+.event-count-label {
+  font-size: 10px;
+  color: #685c4e;
+  white-space: nowrap;
+}
+
+.event-log-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: calc(100vh - 300px);
+  overflow-y: auto;
+}
+
+.event-log-item {
+  padding: 6px 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 3px solid #444;
+  transition: background 0.15s;
+}
+
+.event-log-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.event-log-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.event-log-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.event-log-time {
+  font-size: 10px;
+  color: #685c4e;
+  white-space: nowrap;
+}
+
+.event-log-type-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.event-log-message {
+  font-size: 11px;
+  color: #c0b8a8;
+  line-height: 1.4;
+}
+
+.civ-buildings,
+.civ-inventions {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #a09888;
+}
+
+.civ-inventions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
 }

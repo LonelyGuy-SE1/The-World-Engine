@@ -2,7 +2,7 @@ import { Terrain, Agent, AgentAction, Tile } from '../engine/types';
 import { World } from '../engine/World';
 import { SpeciesRegistry } from '../engine/Agent';
 import {
-  spriteManager, speciesSpriteName, plantSpriteForTerrain,
+  spriteManager, speciesSpriteName, plantSpriteForTerrain, shelterSpriteName,
 } from './SpriteManager';
 
 export interface RenderConfig {
@@ -149,6 +149,11 @@ export class CanvasRenderer {
       this.renderWorldObjects(ctx, world, ts, startX, startY, endX, endY);
     }
 
+    // Buildings/shelters at medium+ zoom
+    if (ts >= 14) {
+      this.renderBuildings(ctx, agents, speciesRegistry, ts, startX, startY, endX, endY);
+    }
+
     // Render agents — auto-select detail level based on zoom
     if (ts >= 20) {
       this.renderSpriteAgents(ctx, agents, speciesRegistry, ts, startX, startY, endX, endY, tick);
@@ -275,12 +280,61 @@ export class CanvasRenderer {
         const img = spriteManager.getPlant(spriteName);
         if (!img) continue;
 
-        const spriteSize = ts * 0.75;
+        // Fade plants proportional to remaining food
+        const foodFade = Math.min(1, (tile.foodResource - 25) / 40);
+        const spriteSize = ts * 0.75 * (0.5 + foodFade * 0.5);
         const px = x * ts + (ts - spriteSize) * 0.5;
         const py = y * ts + (ts - spriteSize) * 0.5;
-        ctx.globalAlpha = 0.8;
+        ctx.globalAlpha = 0.3 + foodFade * 0.5;
         ctx.drawImage(img, px, py, spriteSize, spriteSize);
         drawn++;
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ───────────── Buildings/Shelters ─────────────
+
+  private renderBuildings(
+    ctx: CanvasRenderingContext2D, agents: Agent[], speciesRegistry: SpeciesRegistry,
+    ts: number, sx: number, sy: number, ex: number, ey: number,
+  ): void {
+    if (!spriteManager.ready) return;
+
+    // Collect unique shelter positions from agents in view
+    const shelterSet = new Set<string>();
+    const shelters: { x: number; y: number; species: number }[] = [];
+
+    for (let i = 0; i < agents.length; i++) {
+      const a = agents[i];
+      if (!a.alive || a.shelterX < 0 || a.shelterY < 0) continue;
+      if (a.shelterX < sx || a.shelterX >= ex || a.shelterY < sy || a.shelterY >= ey) continue;
+      const key = `${a.shelterX},${a.shelterY}`;
+      if (shelterSet.has(key)) continue;
+      shelterSet.add(key);
+      shelters.push({ x: a.shelterX, y: a.shelterY, species: a.species });
+    }
+
+    for (const s of shelters) {
+      // Determine shelter sprite based on civilization tech level
+      const sp = speciesRegistry.species.get(s.species);
+      const spriteName = shelterSpriteName(sp ? Math.min(5, Math.floor((sp.population || 0) / 30)) : 0);
+      const img = spriteManager.getObject(spriteName);
+      if (!img) continue;
+
+      const spriteSize = ts * 0.65;
+      const px = s.x * ts + (ts - spriteSize) * 0.5;
+      const py = s.y * ts + (ts - spriteSize) * 0.5;
+      ctx.globalAlpha = 0.8;
+      ctx.drawImage(img, px, py, spriteSize, spriteSize);
+
+      // Small colored dot to show species ownership
+      if (sp) {
+        ctx.fillStyle = sp.color;
+        ctx.globalAlpha = 0.6;
+        ctx.beginPath();
+        ctx.arc(s.x * ts + ts * 0.8, s.y * ts + ts * 0.2, ts * 0.08, 0, 6.2832);
+        ctx.fill();
       }
     }
     ctx.globalAlpha = 1;
@@ -348,10 +402,11 @@ export class CanvasRenderer {
 
   // ───────────── Sprite agents (close zoom) ─────────────
 
-  private getSpriteForSpecies(speciesId: number): string {
+  private getSpriteForSpecies(speciesId: number, speciesRegistry?: SpeciesRegistry): string {
     let name = this.speciesSpriteMap.get(speciesId);
     if (!name) {
-      name = speciesSpriteName(this.speciesIndexCounter++);
+      const sp = speciesRegistry?.species.get(speciesId);
+      name = speciesSpriteName(this.speciesIndexCounter++, sp?.founderTraits);
       this.speciesSpriteMap.set(speciesId, name);
     }
     return name;
@@ -400,7 +455,7 @@ export class CanvasRenderer {
       if (a.x < sx || a.x >= ex || a.y < sy || a.y >= ey) continue;
       if (++rendered > MAX_SPRITES) break;
 
-      const spriteName = this.getSpriteForSpecies(a.species);
+      const spriteName = this.getSpriteForSpecies(a.species, speciesRegistry);
       const img = spriteManager.getCreature(spriteName);
 
       const px = a.x * ts + ts * 0.5;

@@ -8,6 +8,29 @@ interface IconProps {
 
 const defaultProps = { size: 16, color: "currentColor" };
 
+export const ScrollIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v3h4" />
+    <path d="M19 17V5a2 2 0 0 0-2-2H4" />
+    <path d="M15 8h-5" />
+    <path d="M15 12h-5" />
+  </svg>
+);
+
 export const GearIcon: React.FC<IconProps> = ({
   size = 16,
   color = "currentColor",
@@ -393,5 +416,76 @@ export const StarvationIcon: React.FC<IconProps> = ({
     <path d="M12 2a10 10 0 1 0 10 10" />
     <path d="M12 6v6l4 2" />
     <path d="M20 4l2 2-2 2" />
+  </svg>
+);
+
+export const DisasterIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+  </svg>
+);
+
+export const HammerIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M15 12l-8.5 8.5c-.83.83-2.17.83-3 0 0 0 0 0 0 0a2.12 2.12 0 0 1 0-3L12 9" />
+    <path d="M17.64 15L22 10.64" />
+    <path d="M20.91 11.7l-1.25-1.25c-.6-.6-.93-1.4-.93-2.25v-.86L16.01 4.6a5.56 5.56 0 0 0-3.94-1.64H9l.92.82A6.18 6.18 0 0 1 12 8.4v1.56l2 2h2.47l2.26 1.91" />
+  </svg>
+);
+
+export const DNAIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M2 15c6.667-6 13.333 0 20-6" />
+    <path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993" />
+    <path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993" />
+    <path d="M17 6l-2.5-2.5" />
+    <path d="M14 8l-1-1" />
+    <path d="M7 18l2.5 2.5" />
+    <path d="M3.5 14.5l.5.5" />
+    <path d="M20 9l.5.5" />
+    <path d="M6.5 12.6l1 .9" />
+    <path d="M16.5 10.4l1 .9" />
   </svg>
 );

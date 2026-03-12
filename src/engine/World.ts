@@ -296,6 +296,7 @@ export class World {
       if (doTerrainEvolution && tile.terrain !== Terrain.DeepWater && tile.terrain !== Terrain.ShallowWater) {
         const pressure = this.populationPressure[i];
 
+        // Forest growth: fertile, humid, temperate land with low population becomes forest
         if (tile.terrain === Terrain.Grass && tile.fertility > 0.7
             && tile.humidity > 0.5 && tile.temperature > 5 && tile.temperature < 35
             && pressure < 2) {
@@ -305,6 +306,7 @@ export class World {
           }
         }
 
+        // Deforestation from overpopulation
         if (tile.terrain === Terrain.Forest && pressure > 15) {
           if (this.rng.next() < 0.005) {
             tile.terrain = Terrain.Grass;
@@ -312,13 +314,15 @@ export class World {
           }
         }
 
-        if (tile.terrain === Terrain.Grass && pressure > 25) {
-          if (this.rng.next() < 0.003) {
+        // Desertification: extreme population pressure or extreme heat dries out grassland
+        if (tile.terrain === Terrain.Grass && (pressure > 25 || (tile.temperature > 45 && tile.humidity < 0.2))) {
+          if (this.rng.next() < 0.003 + (tile.temperature > 50 ? 0.005 : 0)) {
             tile.terrain = Terrain.Sand;
             tile.fertility *= 0.5;
           }
         }
 
+        // Desert recovery: rain and low pressure lets sand regrow
         if (tile.terrain === Terrain.Sand && tile.humidity > 0.4
             && tile.temperature > 5 && pressure < 1) {
           if (this.rng.next() < 0.001) {
@@ -327,14 +331,57 @@ export class World {
           }
         }
 
+        // Snowmelt above 5°C
         if (tile.terrain === Terrain.Snow && tile.temperature > 5) {
-          if (this.rng.next() < 0.001) {
+          if (this.rng.next() < 0.001 + (tile.temperature > 15 ? 0.003 : 0)) {
             tile.terrain = Terrain.Mountain;
           }
         }
+
+        // Snowfall on mountains when cold
         if (tile.terrain === Terrain.Mountain && tile.temperature < -10) {
-          if (this.rng.next() < 0.001) {
+          if (this.rng.next() < 0.001 + (tile.temperature < -25 ? 0.003 : 0)) {
             tile.terrain = Terrain.Snow;
+          }
+        }
+
+        // Erosion: mountains with extreme weather lose elevation and can become grass
+        if (tile.terrain === Terrain.Mountain && tile.humidity > 0.7 && tile.temperature > 10) {
+          if (this.rng.next() < 0.0005) {
+            tile.terrain = Terrain.Grass;
+            tile.elevation = Math.max(0.3, tile.elevation - 0.1);
+            tile.fertility = 0.3;
+          }
+        }
+
+        // Flooding: extreme temperature rise melts glaciers — low-lying grass becomes shallow water
+        if (tile.terrain === Terrain.Grass && tile.elevation < 0.3 &&
+          this.globalTemperatureOffset > 15 && tile.humidity > 0.6) {
+          if (this.rng.next() < 0.002) {
+            tile.terrain = Terrain.ShallowWater;
+            tile.foodResource = 0;
+          }
+        }
+
+        // Wildfire: hot, dry forests with high food can ignite
+        if (tile.terrain === Terrain.Forest && tile.temperature > 40 &&
+            tile.humidity < 0.3 && tile.foodResource > 60) {
+          if (this.rng.next() < 0.001) {
+            tile.terrain = Terrain.Grass;
+            tile.foodResource *= 0.1;
+            tile.fertility *= 0.6;
+            tile.hazard = Math.min(1, tile.hazard + 0.3);
+          }
+        }
+      }
+
+      // Water level changes: shallow water dries up in extreme heat, deep water can recede
+      if (doTerrainEvolution && tile.terrain === Terrain.ShallowWater) {
+        if (tile.temperature > 40 && tile.humidity < 0.2 && this.globalTemperatureOffset > 10) {
+          if (this.rng.next() < 0.001) {
+            tile.terrain = Terrain.Sand;
+            tile.elevation = 0.25;
+            tile.fertility = 0.1;
           }
         }
       }

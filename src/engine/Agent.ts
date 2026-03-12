@@ -218,14 +218,21 @@ export function createAgent(
 export function createRandomAgent(
   world: World, species: number, traits: Traits, tick: number, rng: SeededRandom
 ): Agent {
-  // Find a passable tile
+  // Find a passable tile appropriate for this species' traits
   let x: number, y: number;
   let attempts = 0;
   do {
     x = rng.nextInt(0, world.width - 1);
     y = rng.nextInt(0, world.height - 1);
     attempts++;
-  } while (!world.isPassable(x, y) && attempts < 1000);
+    const tile = world.tileAt(x, y);
+    // Aquatic species spawn on water, others on land
+    if (traits.aquatic > 0.5) {
+      if (tile.terrain <= Terrain.ShallowWater) break;
+    } else {
+      if (tile.terrain > Terrain.ShallowWater && tile.terrain < Terrain.Mountain) break;
+    }
+  } while (attempts < 1000);
 
   if (attempts >= 1000) {
     x = Math.floor(world.width / 2);
@@ -363,6 +370,11 @@ export function decideAction(agent: Agent, world: World, nearbyAgents: Agent[]):
   const isPredator = traits.aggressionBias > 0.6;
   const tile = world.tileAt(agent.x, agent.y);
 
+  // ── EMERGENCY: On water without aquatic trait — flee to land immediately ──
+  if (tile.terrain <= Terrain.ShallowWater && traits.aquatic < 0.3 && traits.flight < 0.5) {
+    return seekLand(agent, world);
+  }
+
   // ── SURVIVAL PRIORITY 1: Flee if about to die ──
   if (agent.health < 20 && psy.fear > 0.5) {
     // Burrowing creatures can hide instead of fleeing
@@ -476,10 +488,15 @@ export function decideAction(agent: Agent, world: World, nearbyAgents: Agent[]):
     return AgentAction.Forage;
   }
 
-  // ── PRIORITY 13: Build shelter (tool users with no home) ──
-  if (traits.toolUse > 0.4 && agent.shelterX < 0 && agent.energy > 50
+  // ── PRIORITY 13: Build shelter/structures (intelligent tool users) ──
+  if (traits.toolUse > 0.3 && agent.energy > 40
       && tile.terrain >= Terrain.Sand && tile.terrain <= Terrain.Forest) {
-    return AgentAction.Build;
+    // Build if: no shelter, or reinforcing existing territory, or high intelligence drives building urge
+    const noShelter = agent.shelterX < 0;
+    const wantsFortify = traits.learningRate > 0.5 && psy.satisfaction < 0.4 && agent.energy > 60;
+    if (noShelter || wantsFortify) {
+      return AgentAction.Build;
+    }
   }
 
   // ── PRIORITY 14: Pack hunting ──
@@ -534,6 +551,22 @@ function chaseTarget(agent: Agent, target: Agent): AgentAction {
   return dy > 0 ? AgentAction.MoveSouth : AgentAction.MoveNorth;
 }
 
+/** Move toward nearest land tile — emergency for non-aquatic creatures on water */
+function seekLand(agent: Agent, world: World): AgentAction {
+  let bestAct: AgentAction = AgentAction.Stay;
+  let bestTerrain = -1;
+  for (const [dx, dy, act] of SEEK_DIRS) {
+    const nx = agent.x + dx, ny = agent.y + dy;
+    if (!world.isValid(nx, ny)) continue;
+    const t = world.tileAt(nx, ny);
+    if (t.terrain > Terrain.ShallowWater && t.terrain > bestTerrain) {
+      bestTerrain = t.terrain;
+      bestAct = act;
+    }
+  }
+  return bestAct;
+}
+
 /** Move toward water (seekWater=true) or food (seekWater=false) */
 function seekTerrain(agent: Agent, world: World, seekWater: boolean): AgentAction {
   let bestVal = -1, bestAct: AgentAction = AgentAction.Stay;
@@ -580,21 +613,43 @@ export function executeAction(
       const nx = agent.x + dx;
       const ny = agent.y + dy;
 
-      if (world.isPassable(nx, ny) || (traits.aquatic > 0.5 && world.isValid(nx, ny) && world.tileAt(nx, ny).terrain <= Terrain.ShallowWater) || (traits.flight > 0.5 && world.isValid(nx, ny) && world.tileAt(nx, ny).terrain !== Terrain.DeepWater)) {
-        const tile = world.tileAt(nx, ny);
+      if (!world.isValid(nx, ny)) break;
+      const targetTile = world.tileAt(nx, ny);
+      const terrain = targetTile.terrain;
+
+      // Habitat restrictions: water is lethal for non-aquatic, non-flying
+      let canPass = false;
+      if (terrain === Terrain.DeepWater) {
+        canPass = traits.aquatic > 0.7; // Only highly aquatic creatures enter deep water
+      } else if (terrain === Terrain.ShallowWater) {
+        canPass = traits.aquatic > 0.3 || traits.flight > 0.5; // Moderate aquatic or fliers
+      } else {
+        canPass = true; // Land tiles are passable
+        // Mountain restriction: only strong/flight creatures
+        if (terrain === Terrain.Mountain && traits.flight < 0.3 && traits.size < 0.8) {
+          canPass = agent.energy > 20; // Small weak creatures need energy to climb
+        }
+      }
+
+      if (canPass) {
         const tileIdx = world.tileIndex(agent.x, agent.y);
         const windFactor = 1 - (world.windX[tileIdx] * dx + world.windY[tileIdx] * dy) * 0.5;
         const predatorBonus = isPredator ? 0.55 : 1.0;
         const flightDiscount = traits.flight > 0.3 ? (1 - traits.flight * 0.4) : 1.0;
-        const moveCost = TERRAIN_MOVEMENT_COST[tile.terrain] * traits.size / traits.speed * Math.max(0.5, windFactor) * predatorBonus * flightDiscount;
+        const moveCost = TERRAIN_MOVEMENT_COST[terrain] * traits.size / traits.speed * Math.max(0.5, windFactor) * predatorBonus * flightDiscount;
         if (agent.energy >= moveCost) {
           agent.x = nx;
           agent.y = ny;
           agent.energy -= moveCost;
           agent.psychology.curiosity = Math.max(0, agent.psychology.curiosity - 0.01);
-          // Observe environment while moving — remember resource-rich areas
-          if (tile.foodResource > 30) addMemory(agent, 'food', nx, ny, tile.foodResource / 100);
-          if (tile.waterResource > 30) addMemory(agent, 'water', nx, ny, tile.waterResource / 100);
+          if (targetTile.foodResource > 30) addMemory(agent, 'food', nx, ny, targetTile.foodResource / 100);
+          if (targetTile.waterResource > 30) addMemory(agent, 'water', nx, ny, targetTile.waterResource / 100);
+
+          // Water damage: non-aquatic creatures in shallow water take damage
+          if (terrain === Terrain.ShallowWater && traits.aquatic < 0.3) {
+            agent.health -= 2;
+            agent.energy -= 1;
+          }
         }
       }
       break;
@@ -624,26 +679,49 @@ export function executeAction(
         : traits.reproductionThreshold * 120);
       if (agent.energy >= threshold) {
         let mate: Agent | undefined;
+        let crossBreedMate: Agent | undefined;
         let gIdx = grid.firstAt(agent.x, agent.y);
         while (gIdx >= 0) {
           const a = agents[gIdx];
-          if (a.id !== agent.id && a.alive && a.species === agent.species &&
-              a.energy >= a.genome.traits.reproductionThreshold * 60 &&
-              a.gestationCooldown <= 0) {
-            mate = a; break;
+          if (a.id !== agent.id && a.alive && a.gestationCooldown <= 0 &&
+              a.energy >= a.genome.traits.reproductionThreshold * 60) {
+            if (a.species === agent.species) {
+              mate = a; break;
+            } else if (!crossBreedMate) {
+              // Cross-breeding candidate: different species but compatible traits
+              const compat = traitCompatibility(agent.genome.traits, a.genome.traits);
+              if (compat > 0.5) crossBreedMate = a;
+            }
           }
           gIdx = grid.next(gIdx);
         }
 
+        // Cross-breeding: if no same-species mate, try interspecies hybridization
+        const isCrossBreed = !mate && crossBreedMate && world.rng.next() < 0.15; // 15% chance
+        const actualMate = mate || (isCrossBreed ? crossBreedMate : undefined);
+
         const spawnPos = findEmptyAdjacent(agent.x, agent.y, world);
         if (spawnPos) {
-          const childGenome = mate
-            ? crossoverAndMutate(agent.genome, mate.genome, traits.mutationRate, world.rng)
+          const childGenome = actualMate
+            ? crossoverAndMutate(agent.genome, actualMate.genome, traits.mutationRate, world.rng)
             : mutateGenome(agent.genome, traits.mutationRate, world.rng);
 
           const birthCost = isPredator ? 35 : 50;
+
+          // Cross-breed offspring get a new species identity
+          let childSpecies = agent.species;
+          if (isCrossBreed && crossBreedMate) {
+            // Tag for new species registration by the simulation loop
+            (agent as any)._crossBreedData = {
+              parentA: agent.species,
+              parentB: crossBreedMate.species,
+              childTraits: childGenome.traits,
+            };
+            childSpecies = -1; // Placeholder — will be assigned a real ID
+          }
+
           const child = createAgent(
-            spawnPos.x, spawnPos.y, agent.species, childGenome,
+            spawnPos.x, spawnPos.y, childSpecies, childGenome,
             0, agent.generation + 1, agent.id
           );
           child.energy = birthCost * 0.6;
@@ -651,10 +729,10 @@ export function executeAction(
           agent.energy -= birthCost;
           agent.offspring++;
           agent.gestationCooldown = 30 + Math.floor(traits.size * 25);
-          if (mate) {
-            mate.energy -= Math.floor(birthCost * 0.4);
-            mate.offspring++;
-            mate.gestationCooldown = 20 + Math.floor(mate.genome.traits.size * 15);
+          if (actualMate) {
+            actualMate.energy -= Math.floor(birthCost * 0.4);
+            actualMate.offspring++;
+            actualMate.gestationCooldown = 20 + Math.floor(actualMate.genome.traits.size * 15);
           }
 
           (agent as any)._pendingChild = child;
@@ -687,43 +765,70 @@ export function executeAction(
         }
       }
       if (target) {
-        // Pack hunting bonus: count allies within perception range
-        let packBonus = 1.0;
-        if (traits.packHunting > 0.3) {
-          let allyCount = 0;
-          let gIdxPack = grid.firstAt(agent.x, agent.y);
-          while (gIdxPack >= 0) {
-            const a = agents[gIdxPack];
-            if (a.id !== agent.id && a.alive && a.species === agent.species) allyCount++;
-            gIdxPack = grid.next(gIdxPack);
+        // === PACK TACTICS: Count allies within 2 tiles for both sides ===
+        let attackerAllies = 0;
+        let defenderAllies = 0;
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            let gi = grid.firstAt(agent.x + dx, agent.y + dy);
+            while (gi >= 0) {
+              const a = agents[gi];
+              if (a.alive && a.id !== agent.id && a.id !== target.id) {
+                if (a.species === agent.species) attackerAllies++;
+                if (a.species === target.species) defenderAllies++;
+              }
+              gi = grid.next(gi);
+            }
           }
-          packBonus = 1 + allyCount * traits.packHunting * 0.3;
         }
+
+        // Pack multiplier: N allies = N× bonus (1000 monkeys overwhelm 1 gorilla)
+        const attackerPackMult = 1 + attackerAllies * (0.3 + traits.packHunting * 0.5);
+        const defenderPackMult = 1 + defenderAllies * (0.3 + target.genome.traits.packHunting * 0.5);
+
         // Camouflage evasion: target with high camouflage may dodge
         const evadeChance = target.genome.traits.camouflage * 0.4;
         const hitHash = ((agent.id * 2654435761 + agent.age * 340573321) >>> 0) / 0xffffffff;
         if (hitHash < evadeChance) {
-          // Attack missed — target evaded
           agent.energy -= 1.5;
           break;
         }
-        const damage = 20 * traits.size * (0.5 + traits.aggressionBias * 0.8) * packBonus;
-        target.health -= damage;
-        // Apply venom damage-over-time
+
+        // Base combat power: size × aggression, but diminishing returns on pure size
+        const attackPower = (Math.sqrt(traits.size) * 15) * (0.4 + traits.aggressionBias * 0.6) * attackerPackMult;
+        const defensePower = (Math.sqrt(target.genome.traits.size) * 10) * defenderPackMult;
+
+        // Venom bonus
+        const venomDamage = traits.venom > 0.2 ? traits.venom * 8 : 0;
+
+        // Tool use combat bonus (intelligent fighters)
+        const toolBonus = traits.toolUse > 0.3 ? traits.toolUse * 5 : 0;
+
+        // Net damage
+        const rawDamage = Math.max(1, attackPower + venomDamage + toolBonus - defensePower * 0.3);
+        // Counter damage: defender fights back proportionally
+        const counterDamage = Math.max(0, defensePower * 0.2 - attackerPackMult * 0.5);
+
+        target.health -= rawDamage;
+        agent.health -= counterDamage;
+
+        // Apply venom DOT
         if (traits.venom > 0.2) {
           target.venomStack = Math.min(3, target.venomStack + traits.venom);
         }
         target.psychology.fear = Math.min(1, target.psychology.fear + 0.3);
-        agent.energy -= 1.5;
+        agent.energy -= 2;
         agent.psychology.aggression = Math.min(1, agent.psychology.aggression + 0.05);
 
-        addMemory(target, 'danger', agent.x, agent.y, damage / 20);
+        addMemory(target, 'danger', agent.x, agent.y, rawDamage / 20);
 
         if (target.health <= 0) {
           target.alive = false;
           agent.kills++;
-          agent.energy = Math.min(100, agent.energy + target.energy * 0.7 + 20);
-          agent.health = Math.min(agent.maxHealth, agent.health + 8);
+          // Diminishing returns on energy from kills (prevents snowballing)
+          const energyGain = Math.min(30, target.energy * 0.4 + 10);
+          agent.energy = Math.min(100, agent.energy + energyGain);
+          agent.health = Math.min(agent.maxHealth, agent.health + 5);
           addMemory(agent, 'food', target.x, target.y, 0.9);
         }
       }
@@ -792,10 +897,16 @@ export function executeAction(
           nx = agent.x;
           ny = agent.y + (threatDy > 0 ? 1 : -1);
         }
-        if (world.isPassable(nx, ny)) {
-          agent.x = nx;
-          agent.y = ny;
-          agent.totalDistanceTraveled++;
+        // Don't flee into water if not aquatic
+        if (world.isValid(nx, ny)) {
+          const fleeTile = world.tileAt(nx, ny);
+          const canFlee = fleeTile.terrain > Terrain.ShallowWater ||
+            traits.aquatic > 0.3 || traits.flight > 0.5;
+          if (canFlee && world.isPassable(nx, ny)) {
+            agent.x = nx;
+            agent.y = ny;
+            agent.totalDistanceTraveled++;
+          }
         }
       }
       agent.energy -= 1.5;
@@ -804,17 +915,28 @@ export function executeAction(
     }
 
     case AgentAction.Build: {
-      // Build: create or reinforce a shelter at current position
+      // Build: create or reinforce a shelter/structure at current position
+      // More intelligent creatures build better structures
       if (traits.toolUse > 0.2) {
         const tile = world.tileAt(agent.x, agent.y);
         if (tile.terrain >= Terrain.Sand && tile.terrain <= Terrain.Forest) {
           agent.shelterX = agent.x;
           agent.shelterY = agent.y;
-          agent.energy -= 3;
-          agent.psychology.satisfaction = Math.min(1, agent.psychology.satisfaction + 0.15);
-          // Building strengthens territory
-          world.claimTerritory(agent.x, agent.y, agent.species);
-          world.claimTerritory(agent.x, agent.y, agent.species);
+          // Cost scales with intelligence — better builds cost more but yield more
+          const buildQuality = traits.toolUse + traits.learningRate * 0.5;
+          const energyCost = 3 + buildQuality * 2;
+          agent.energy -= energyCost;
+          agent.psychology.satisfaction = Math.min(1, agent.psychology.satisfaction + 0.15 + buildQuality * 0.1);
+          // Building strengthens territory (intelligent builders claim more effectively)
+          const claimStrength = 1 + Math.floor(buildQuality * 2);
+          for (let c = 0; c < claimStrength; c++) {
+            world.claimTerritory(agent.x, agent.y, agent.species);
+          }
+          // Improve local tile — building adds fertility and reduces hazard
+          tile.fertility = Math.min(1, tile.fertility + 0.02 * buildQuality);
+          tile.hazard = Math.max(0, tile.hazard - 0.05 * buildQuality);
+          // Tag agent as builder for civilization tracking
+          (agent as any)._builtThisTick = true;
         }
       }
       break;
@@ -1003,10 +1125,32 @@ export function applyTemperatureStress(agent: Agent, tile: { temperature: number
   const tolerance = agent.genome.traits.heatTolerance;
   const preferred = 15 + tolerance * 20; // preferred temperature
   const diff = Math.abs(tile.temperature - preferred);
-  if (diff > 15) {
+
+  // Realistic temperature physics:
+  // >30°C deviation from preferred = serious stress
+  // >50°C deviation = rapid death (e.g. 100°F shift ≈ 55°C)
+  if (diff > 50) {
+    // Extreme: instant severe damage (100°F shift kills fast)
+    agent.health -= (diff - 50) * 2.0;
+    agent.energy -= (diff - 50) * 1.5;
+  } else if (diff > 30) {
+    // Severe stress
+    const stress = (diff - 30) / 20;
+    agent.health -= stress * 3.0;
+    agent.energy -= stress * 2.0;
+  } else if (diff > 15) {
+    // Moderate stress
     const stress = (diff - 15) / 30;
     agent.health -= stress * 0.5;
     agent.energy -= stress * 0.3;
+  }
+  // Sub-zero exposure for non-cold-adapted creatures
+  if (tile.temperature < -20 && tolerance < 0) {
+    agent.health -= Math.abs(tile.temperature + 20) * 0.3;
+  }
+  // Heat stroke for non-heat-adapted
+  if (tile.temperature > 50 && tolerance > 0.3) {
+    agent.health -= (tile.temperature - 50) * 0.5;
   }
 }
 
@@ -1041,6 +1185,18 @@ function crossoverAndMutate(g1: Genome, g2: Genome, mutationRate: number, rng: S
 
 function addMemory(agent: Agent, type: MemoryEntry['type'], x: number, y: number, intensity: number): void {
   agent.memory.push({ tick: 0, type, x, y, intensity });
+}
+
+/** Compute trait compatibility between two species (0–1). Higher = more compatible for cross-breeding. */
+function traitCompatibility(a: Traits, b: Traits): number {
+  // Compare key ecological traits — similar-sized, similar-habitat creatures are more compatible
+  let diff = 0;
+  diff += Math.abs(a.size - b.size) / 2;
+  diff += Math.abs(a.aquatic - b.aquatic);
+  diff += Math.abs(a.flight - b.flight);
+  diff += Math.abs(a.heatTolerance - b.heatTolerance) / 2;
+  diff += Math.abs(a.aggressionBias - b.aggressionBias) / 2;
+  return Math.max(0, 1 - diff / 2.5);
 }
 
 function findEmptyAdjacent(x: number, y: number, world: World): { x: number; y: number } | null {

@@ -70,11 +70,17 @@ export class Simulation {
         traits.size = 1.0;
         traits.metabolism = 0.8;
         traits.foodEfficiency = 1.3;
+        traits.toolUse = 0.6;
+        traits.learningRate = 0.7;
+        traits.packHunting = 0.4;
       } else if (s === fullConfig.initialSpecies - 1) {
-        traits.aggressionBias = 0.85;
-        traits.speed = 2.0;
-        traits.size = 1.6;
+        // Apex predator — strong but NOT unstoppable
+        traits.aggressionBias = 0.7;
+        traits.speed = 1.6;
+        traits.size = 1.4;
         traits.perceptionRadius = 5;
+        traits.metabolism = 1.3; // High metabolism = needs lots of food
+        traits.socialBias = 0.2; // Mostly solitary
       }
       const speciesInfo = speciesRegistry.registerSpecies(traits, 0);
       if (s === 0) {
@@ -214,6 +220,28 @@ export class Simulation {
       if ((agent as any)._pendingChild) {
         const child = (agent as any)._pendingChild as Agent;
         child.tickBorn = tick;
+
+        // Handle cross-breed offspring: register as new hybrid species
+        if (child.species === -1 && (agent as any)._crossBreedData) {
+          const cbd = (agent as any)._crossBreedData as {
+            parentA: number; parentB: number; childTraits: import('./types').Traits;
+          };
+          const hybridSpecies = speciesRegistry.registerSpecies(cbd.childTraits, tick);
+          const spA = speciesRegistry.species.get(cbd.parentA);
+          const spB = speciesRegistry.species.get(cbd.parentB);
+          const nameA = spA?.name?.split(' ')[0] || 'Unknown';
+          const nameB = spB?.name?.split(' ')[0] || 'Unknown';
+          hybridSpecies.name = `${nameA}-${nameB} Hybrid`;
+          // Blend parent colors
+          hybridSpecies.color = spA?.color || spB?.color || '#AAAAAA';
+          child.species = hybridSpecies.id;
+          instance.eventLog.log(tick, EventType.CrossBreed,
+            `A new hybrid species "${hybridSpecies.name}" emerged from ${spA?.name || 'unknown'} × ${spB?.name || 'unknown'}!`,
+            { parentA: cbd.parentA, parentB: cbd.parentB, newSpeciesId: hybridSpecies.id }
+          );
+          delete (agent as any)._crossBreedData;
+        }
+
         newChildren.push(child);
         delete (agent as any)._pendingChild;
       }
@@ -227,8 +255,11 @@ export class Simulation {
       a.age++;
       if (a.gestationCooldown > 0) a.gestationCooldown--;
       const t = a.genome.traits;
-      // Base metabolic cost: smaller, slower creatures are cheaper to maintain
-      a.energy -= 0.12 * t.metabolism * (0.4 + t.size * 0.4 + t.speed * 0.2);
+      // Base metabolic cost: bigger, faster, more aggressive = more expensive
+      const aggrMeta = 1 + t.aggressionBias * 0.3; // Aggression costs extra energy
+      a.energy -= 0.12 * t.metabolism * (0.4 + t.size * 0.4 + t.speed * 0.2) * aggrMeta;
+      // Intelligence/tool use reduces metabolism slightly (efficiency)
+      if (t.toolUse > 0.3) a.energy += t.toolUse * 0.02;
       // Aging health decline (starts at 80% of max age, accelerates)
       if (a.age > a.maxAge * 0.8) {
         a.health -= (a.age - a.maxAge * 0.8) / (a.maxAge * 0.2) * 0.4;
@@ -238,6 +269,14 @@ export class Simulation {
       // Dehydration damage
       if (a.psychology.thirst > 0.9) {
         a.health -= (a.psychology.thirst - 0.9) * 5;
+      }
+
+      // Habitat check: non-aquatic creatures on water take drowning damage
+      const curTile = world.tileAt(a.x, a.y);
+      if (curTile.terrain === Terrain.DeepWater && t.aquatic < 0.7) {
+        a.health -= 15; // Drowning
+      } else if (curTile.terrain === Terrain.ShallowWater && t.aquatic < 0.3 && t.flight < 0.5) {
+        a.health -= 3; // Struggling in water
       }
 
       if (a.health <= 0 || a.age >= a.maxAge || !a.alive) {
@@ -329,6 +368,10 @@ export class Simulation {
       instance.civilization.update(
         tick, agents, speciesRegistry, instance.eventLog,
         world.territoryOwner, world.territoryStrength, world.width
+      );
+      // Natural disasters
+      instance.civilization.processDisasters(
+        tick, agents, speciesRegistry, instance.eventLog, world
       );
     }
 

@@ -9,6 +9,10 @@ export enum EventType {
   NewSpecies = 'new_species',
   MassStarvation = 'mass_starvation',
   SeasonChange = 'season_change',
+  Disaster = 'disaster',
+  BuildingConstructed = 'building_constructed',
+  Invention = 'invention',
+  CrossBreed = 'cross_breed',
 }
 
 export interface WorldEvent {

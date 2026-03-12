@@ -15,6 +15,9 @@ import {
   CycleIcon,
   TrendUpIcon,
   StarvationIcon,
+  DisasterIcon,
+  HammerIcon,
+  DNAIcon,
 } from "./Icons";
 
 interface DashboardPanelProps {
@@ -351,6 +354,20 @@ const CivilizationInfo: React.FC<{
                   .join(", ")}
               </div>
             )}
+            {civ.buildings > 0 && (
+              <div className="civ-buildings">
+                🏗️ {civ.buildings} structures built
+              </div>
+            )}
+            {civ.inventions.length > 0 && (
+              <div className="civ-inventions">
+                {civ.inventions.map((inv, idx) => (
+                  <span key={idx} className="tech-badge" title={inv}>
+                    💡 {inv}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
@@ -374,6 +391,10 @@ const EVENT_ICON_COMPONENTS: Record<
   new_species: SeedlingIcon,
   mass_starvation: StarvationIcon,
   season_change: CycleIcon,
+  disaster: DisasterIcon,
+  building_constructed: HammerIcon,
+  invention: LightbulbIcon,
+  cross_breed: DNAIcon,
 };
 
 const EventLogView: React.FC<{

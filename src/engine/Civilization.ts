@@ -23,18 +23,27 @@ export const TECH_TREE: Technology[] = [
   { id: 'fire', name: 'Fire', description: 'Control of fire for warmth and cooking', prereqs: [], effects: { heatTolerance: 0.3, foodEfficiency: 0.2 }, minPopulation: 20, minAge: 50 },
   { id: 'tools', name: 'Stone Tools', description: 'Basic tools for hunting and gathering', prereqs: [], effects: { foodEfficiency: 0.3, combatBonus: 0.2 }, minPopulation: 15, minAge: 40 },
   { id: 'language', name: 'Language', description: 'Complex communication', prereqs: [], effects: { perceptionRadius: 1 }, minPopulation: 30, minAge: 60 },
+  { id: 'shelter', name: 'Basic Shelter', description: 'Simple structures for protection from elements', prereqs: ['tools'], effects: { heatTolerance: 0.15, metabolism: -0.05 }, minPopulation: 15, minAge: 45 },
   { id: 'cooking', name: 'Cooking', description: 'Prepared food is more nutritious', prereqs: ['fire'], effects: { foodEfficiency: 0.3, metabolism: -0.1 }, minPopulation: 25, minAge: 70 },
   { id: 'agriculture', name: 'Agriculture', description: 'Farming and food cultivation', prereqs: ['tools'], effects: { foodEfficiency: 0.5 }, minPopulation: 40, minAge: 100 },
   { id: 'social_org', name: 'Social Organization', description: 'Tribes and social hierarchy', prereqs: ['language'], effects: { combatBonus: 0.3 }, minPopulation: 50, minAge: 80 },
+  { id: 'irrigation', name: 'Irrigation', description: 'Water management for crops', prereqs: ['agriculture'], effects: { foodEfficiency: 0.4 }, minPopulation: 45, minAge: 130 },
+  { id: 'pottery', name: 'Pottery', description: 'Food storage and water vessels', prereqs: ['fire', 'tools'], effects: { foodEfficiency: 0.2 }, minPopulation: 30, minAge: 90 },
   { id: 'metalwork', name: 'Metalwork', description: 'Working with metals for tools and weapons', prereqs: ['fire', 'tools'], effects: { combatBonus: 0.4, foodEfficiency: 0.2 }, minPopulation: 60, minAge: 150 },
   { id: 'writing', name: 'Writing', description: 'Recording knowledge for future generations', prereqs: ['language', 'social_org'], effects: { perceptionRadius: 1 }, minPopulation: 80, minAge: 200 },
-  { id: 'architecture', name: 'Architecture', description: 'Building permanent structures', prereqs: ['tools', 'social_org'], effects: { heatTolerance: 0.2, metabolism: -0.15 }, minPopulation: 70, minAge: 180 },
+  { id: 'architecture', name: 'Architecture', description: 'Building permanent structures', prereqs: ['tools', 'social_org', 'shelter'], effects: { heatTolerance: 0.2, metabolism: -0.15 }, minPopulation: 70, minAge: 180 },
   { id: 'medicine', name: 'Medicine', description: 'Healing and disease prevention', prereqs: ['fire', 'agriculture'], effects: { metabolism: -0.1 }, minPopulation: 50, minAge: 200 },
+  { id: 'animal_husbandry', name: 'Animal Husbandry', description: 'Domestication and breeding of animals', prereqs: ['agriculture', 'tools'], effects: { foodEfficiency: 0.35, speed: 0.1 }, minPopulation: 45, minAge: 140 },
+  { id: 'wheel', name: 'The Wheel', description: 'Enables carts, mills, and pottery wheels', prereqs: ['tools', 'pottery'], effects: { speed: 0.15, foodEfficiency: 0.15 }, minPopulation: 50, minAge: 160 },
   { id: 'laws', name: 'Laws & Governance', description: 'Codified rules for society', prereqs: ['writing', 'social_org'], effects: { combatBonus: 0.2 }, minPopulation: 100, minAge: 300 },
   { id: 'philosophy', name: 'Philosophy', description: 'Deep thought about existence', prereqs: ['writing'], effects: { perceptionRadius: 1 }, minPopulation: 60, minAge: 250 },
   { id: 'warfare', name: 'Organized Warfare', description: 'Military tactics and strategy', prereqs: ['metalwork', 'social_org'], effects: { combatBonus: 0.6, speed: 0.2 }, minPopulation: 80, minAge: 250 },
   { id: 'trade', name: 'Trade Networks', description: 'Exchange of goods between groups', prereqs: ['agriculture', 'language'], effects: { foodEfficiency: 0.4 }, minPopulation: 70, minAge: 200 },
   { id: 'religion', name: 'Religion', description: 'Shared beliefs and spiritual practices', prereqs: ['language', 'social_org'], effects: { combatBonus: 0.1 }, minPopulation: 40, minAge: 120 },
+  { id: 'fortification', name: 'Fortification', description: 'Walls and defensive structures', prereqs: ['architecture', 'metalwork'], effects: { combatBonus: 0.5, heatTolerance: 0.1 }, minPopulation: 90, minAge: 280 },
+  { id: 'navigation', name: 'Navigation', description: 'Seafaring and exploration', prereqs: ['writing', 'trade'], effects: { speed: 0.3, perceptionRadius: 2 }, minPopulation: 80, minAge: 320 },
+  { id: 'engineering', name: 'Engineering', description: 'Advanced construction and machines', prereqs: ['architecture', 'wheel', 'metalwork'], effects: { foodEfficiency: 0.3, speed: 0.15 }, minPopulation: 100, minAge: 400 },
+  { id: 'astronomy', name: 'Astronomy', description: 'Understanding celestial patterns', prereqs: ['writing', 'philosophy'], effects: { perceptionRadius: 2 }, minPopulation: 70, minAge: 350 },
 ];
 
 const KINGDOM_PREFIXES = [
@@ -50,6 +59,8 @@ export interface SpeciesCivilization {
   foundedTick: number;
   atWar: Set<number>; // species IDs currently fighting
   warHistory: Array<{ enemyId: number; startTick: number; endTick: number | null }>;
+  buildings: number; // total structures built by this species
+  inventions: string[]; // list of invention names (narrative)
 }
 
 export class CivilizationSystem {
@@ -70,6 +81,8 @@ export class CivilizationSystem {
         foundedTick: tick,
         atWar: new Set(),
         warHistory: [],
+        buildings: 0,
+        inventions: [],
       };
       this.speciesCivs.set(speciesId, civ);
     }
@@ -137,6 +150,37 @@ export class CivilizationSystem {
           { speciesId }
         );
       }
+
+      // Count buildings from agents that built this tick
+      let buildCount = 0;
+      for (let i = 0; i < agents.length; i++) {
+        if (agents[i].species === speciesId && (agents[i] as any)._builtThisTick) {
+          buildCount++;
+          delete (agents[i] as any)._builtThisTick;
+        }
+      }
+      if (buildCount > 0) {
+        civ.buildings += buildCount;
+        // Log milestone building events
+        if (civ.buildings === 10 || civ.buildings === 50 || civ.buildings === 100 || civ.buildings % 200 === 0) {
+          eventLog.log(tick, EventType.BuildingConstructed,
+            `${sp.name} has constructed ${civ.buildings} structures!`,
+            { speciesId, totalBuildings: civ.buildings }
+          );
+        }
+      }
+
+      // Inventions — emergent discoveries from tech combinations
+      if (civ.techLevel >= 3 && this._rng() < 0.003 * civ.techLevel) {
+        const invention = this.generateInvention(civ);
+        if (invention && !civ.inventions.includes(invention)) {
+          civ.inventions.push(invention);
+          eventLog.log(tick, EventType.Invention,
+            `${sp.name} invented "${invention}"!`,
+            { speciesId, invention }
+          );
+        }
+      }
     }
 
     // Detect wars from territory conflicts
@@ -194,6 +238,89 @@ export class CivilizationSystem {
         }
       }
     }
+  }
+
+  private generateInvention(civ: SpeciesCivilization): string | null {
+    const INVENTIONS_BY_TIER: string[][] = [
+      // Tier 1 (techLevel 3-5)
+      ['Stone axe', 'Reed basket', 'Fishing hook', 'Fire pit', 'Leather pouch', 'Clay pot'],
+      // Tier 2 (techLevel 6-9)
+      ['Bronze sword', 'Grain mill', 'Loom', 'Chariot', 'Sun dial', 'Aqueduct', 'Brick kiln'],
+      // Tier 3 (techLevel 10-14)
+      ['Catapult', 'Compass', 'Paper', 'Glass', 'Iron plow', 'Windmill', 'Arch bridge'],
+      // Tier 4 (techLevel 15+)
+      ['Printing press', 'Telescope', 'Clock', 'Gunpowder', 'Steam engine', 'Lighthouse'],
+    ];
+    const tier = Math.min(3, Math.floor((civ.techLevel - 3) / 3));
+    const pool = INVENTIONS_BY_TIER[tier];
+    const available = pool.filter(inv => !civ.inventions.includes(inv));
+    if (available.length === 0) return null;
+    return available[Math.floor(this._rng() * available.length)];
+  }
+
+  /** Process natural disasters that affect civilizations */
+  processDisasters(
+    tick: number,
+    agents: Agent[],
+    speciesRegistry: SpeciesRegistry,
+    eventLog: EventLog,
+    world: { tileAt(x: number, y: number): { hazard: number; foodResource: number; temperature: number }; width: number; height: number },
+  ): void {
+    // Disasters happen roughly every 500-2000 ticks
+    if (this._rng() > 0.004) return;
+
+    const DISASTER_TYPES = [
+      { name: 'Earthquake', radius: 12, damage: 15, hazard: 0.3, foodLoss: 30 },
+      { name: 'Wildfire', radius: 18, damage: 10, hazard: 0.5, foodLoss: 60 },
+      { name: 'Flood', radius: 15, damage: 8, hazard: 0.2, foodLoss: 40 },
+      { name: 'Plague', radius: 25, damage: 20, hazard: 0.1, foodLoss: 5 },
+      { name: 'Volcanic eruption', radius: 10, damage: 30, hazard: 0.8, foodLoss: 70 },
+    ];
+
+    const disaster = DISASTER_TYPES[Math.floor(this._rng() * DISASTER_TYPES.length)];
+    const cx = Math.floor(this._rng() * world.width);
+    const cy = Math.floor(this._rng() * world.height);
+
+    // Apply disaster effects to tiles in radius
+    let affectedAgents = 0;
+    const r2 = disaster.radius * disaster.radius;
+    for (let dy = -disaster.radius; dy <= disaster.radius; dy++) {
+      for (let dx = -disaster.radius; dx <= disaster.radius; dx++) {
+        if (dx * dx + dy * dy > r2) continue;
+        const tx = cx + dx;
+        const ty = cy + dy;
+        if (tx < 0 || tx >= world.width || ty < 0 || ty >= world.height) continue;
+        const tile = world.tileAt(tx, ty);
+        tile.hazard = Math.min(1, tile.hazard + disaster.hazard);
+        tile.foodResource = Math.max(0, tile.foodResource - disaster.foodLoss);
+      }
+    }
+
+    // Damage agents in radius
+    for (let i = 0; i < agents.length; i++) {
+      const a = agents[i];
+      if (!a.alive) continue;
+      const dx = a.x - cx;
+      const dy = a.y - cy;
+      if (dx * dx + dy * dy <= r2) {
+        a.health -= disaster.damage;
+        a.psychology.fear = Math.min(1, a.psychology.fear + 0.5);
+        affectedAgents++;
+      }
+    }
+
+    // Destroy buildings for affected civilizations
+    for (const [, civ] of this.speciesCivs) {
+      if (civ.buildings > 0) {
+        const loss = Math.floor(civ.buildings * 0.1 * (disaster.damage / 30));
+        if (loss > 0) civ.buildings = Math.max(0, civ.buildings - loss);
+      }
+    }
+
+    eventLog.log(tick, EventType.Disaster,
+      `${disaster.name} struck at (${cx}, ${cy})! ${affectedAgents} creatures affected.`,
+      { type: disaster.name, x: cx, y: cy, affected: affectedAgents }
+    );
   }
 
   getTechEffects(speciesId: number): Record<string, number> {

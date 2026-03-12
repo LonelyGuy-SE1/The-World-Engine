@@ -32,11 +32,52 @@ const EFFECT_NAMES = [
 ];
 
 /**
- * Maps species index (0-based) to a creature sprite name.
- * Cycles if more than 20 species.
+ * Maps a species to a semantically appropriate creature sprite
+ * based on its founder traits. Falls back to index-based cycling.
  */
-export function speciesSpriteName(speciesIndex: number): string {
-  return CREATURE_NAMES[speciesIndex % CREATURE_NAMES.length];
+export function speciesSpriteName(speciesIndex: number, founderTraits?: {
+  aquatic?: number; flight?: number; size?: number;
+  aggressionBias?: number; socialBias?: number; packHunting?: number;
+  venom?: number; burrowing?: number; camouflage?: number; speed?: number;
+}): string {
+  if (!founderTraits) return CREATURE_NAMES[speciesIndex % CREATURE_NAMES.length];
+
+  const t = founderTraits;
+  // Aquatic creatures
+  if ((t.aquatic ?? 0) > 0.5) return 'frog';
+  // Flying creatures
+  if ((t.flight ?? 0) > 0.5) {
+    if ((t.size ?? 1) > 1.2) return 'eagle';
+    return 'bat';
+  }
+  // Venomous
+  if ((t.venom ?? 0) > 0.5) return 'snake';
+  // Burrowing
+  if ((t.burrowing ?? 0) > 0.5) return 'mouse';
+  // Large predators
+  if ((t.aggressionBias ?? 0) > 0.65 && (t.size ?? 1) > 1.3) return 'lion';
+  // Pack hunters — wolves
+  if ((t.packHunting ?? 0) > 0.4 && (t.aggressionBias ?? 0) > 0.5) return 'wolf';
+  // Fast aggressive — fox
+  if ((t.aggressionBias ?? 0) > 0.5 && (t.speed ?? 1) > 1.3) return 'fox';
+  // Medium predators
+  if ((t.aggressionBias ?? 0) > 0.5) return 'boar';
+  // Large gentle — bear (forager)
+  if ((t.size ?? 1) > 1.3 && (t.aggressionBias ?? 0) <= 0.5) return 'bear';
+  // Social medium — deer
+  if ((t.socialBias ?? 0) > 0.5 && (t.size ?? 1) > 0.8) return 'deer';
+  // Small social — ant/bee
+  if ((t.socialBias ?? 0) > 0.6 && (t.size ?? 1) < 0.8) return 'ant';
+  // Tiny creatures
+  if ((t.size ?? 1) < 0.7) {
+    if ((t.camouflage ?? 0) > 0.3) return 'lizard';
+    return 'rabbit';
+  }
+  // Slow armored
+  if ((t.speed ?? 1) < 0.8) return 'turtle';
+  // Default: cycle through remaining sprites
+  const fallback = ['butterfly', 'bee', 'bug', 'ladybug', 'dragon', 'deer', 'rabbit'];
+  return fallback[speciesIndex % fallback.length];
 }
 
 /**

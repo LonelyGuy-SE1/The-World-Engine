@@ -21,6 +21,7 @@ export {
 } from './Agent';
 export { Simulation } from './Simulation';
 export type { SimulationInstance } from './Simulation';
+export { WasmSimulation, isWasmAvailable } from './WasmSimulation';
 export { EventLog, EventType } from './EventLog';
 export type { WorldEvent } from './EventLog';
 export { CivilizationSystem, TECH_TREE } from './Civilization';
