@@ -14,6 +14,8 @@ export class World {
   weatherPatterns: Float32Array;
   windX: Float32Array;
   windY: Float32Array;
+  territoryOwner: Int32Array;
+  territoryStrength: Float32Array;
 
   constructor(config: Partial<WorldConfig> = {}) {
     this.config = { ...DEFAULT_WORLD_CONFIG, ...config };
@@ -24,6 +26,8 @@ export class World {
     this.weatherPatterns = new Float32Array(this.width * this.height);
     this.windX = new Float32Array(this.width * this.height);
     this.windY = new Float32Array(this.width * this.height);
+    this.territoryOwner = new Int32Array(this.width * this.height);
+    this.territoryStrength = new Float32Array(this.width * this.height);
 
     this.generateTerrain();
   }
@@ -197,16 +201,46 @@ export class World {
     return result;
   }
 
+  populationPressure: Float32Array = new Float32Array(0);
+
+  claimTerritory(x: number, y: number, species: number): void {
+    const idx = y * this.width + x;
+    if (idx < 0 || idx >= this.territoryOwner.length) return;
+    if (this.territoryOwner[idx] === species || this.territoryOwner[idx] === 0) {
+      this.territoryOwner[idx] = species;
+      this.territoryStrength[idx] = Math.min(1, this.territoryStrength[idx] + 0.02);
+    } else {
+      this.territoryStrength[idx] -= 0.01;
+      if (this.territoryStrength[idx] <= 0) {
+        this.territoryOwner[idx] = species;
+        this.territoryStrength[idx] = 0.02;
+      }
+    }
+  }
+
+  recordAgentPresence(x: number, y: number): void {
+    const idx = y * this.width + x;
+    if (idx >= 0 && idx < this.populationPressure.length) {
+      this.populationPressure[idx] = Math.min(50, this.populationPressure[idx] + 1);
+    }
+  }
+
   updateEnvironment(tick: number): void {
+    if (this.populationPressure.length === 0) {
+      this.populationPressure = new Float32Array(this.width * this.height);
+    }
+
     this.seasonAngle = ((tick % this.config.ticksPerYear) / this.config.ticksPerYear) * Math.PI * 2;
 
     const seasonalTemp = Math.sin(this.seasonAngle) * 10;
+    const climateDrift = Math.sin(tick * 0.00005) * 3;
 
-    // Update weather patterns slowly
     if (tick % 50 === 0) {
       this.updateWeatherPatterns();
       this.updateWind();
     }
+
+    const doTerrainEvolution = tick % 200 === 0;
 
     for (let i = 0; i < this.tiles.length; i++) {
       const tile = this.tiles[i];
@@ -216,13 +250,19 @@ export class World {
       const baseTempForLat = this.config.baseTemperature +
         (latFactor - 0.5) * this.config.temperatureVariance -
         tile.elevation * 30;
-      tile.temperature = baseTempForLat + seasonalTemp + this.weatherPatterns[i] * 5 + this.globalTemperatureOffset;
+      tile.temperature = baseTempForLat + seasonalTemp + this.weatherPatterns[i] * 5
+        + this.globalTemperatureOffset + climateDrift;
 
       if (tile.terrain !== Terrain.DeepWater) {
         const growthTempFactor = tile.temperature > 0 && tile.temperature < 40
           ? 1.0 - Math.abs(tile.temperature - 20) / 30
           : 0.1;
-        const growRate = this.config.resourceRegrowRate * tile.fertility * growthTempFactor * (0.5 + tile.humidity * 0.5);
+
+        const pressure = this.populationPressure[i];
+        const depletionFactor = pressure > 5 ? 1 - (pressure - 5) * 0.015 : 1;
+        const growRate = this.config.resourceRegrowRate * tile.fertility
+          * growthTempFactor * (0.5 + tile.humidity * 0.5)
+          * Math.max(0.1, depletionFactor);
         tile.foodResource = Math.min(100, tile.foodResource + growRate);
         tile.waterResource = Math.min(100, tile.waterResource + tile.humidity * 0.05);
       }
@@ -233,8 +273,62 @@ export class World {
         tile.hazard *= 0.999;
       }
 
+      this.territoryStrength[i] *= 0.997;
+      if (this.territoryStrength[i] < 0.01) {
+        this.territoryOwner[i] = 0;
+        this.territoryStrength[i] = 0;
+      }
+
       if (tile.terrain !== Terrain.DeepWater) {
         tile.energy = Math.min(100, tile.energy + 0.1 * Math.max(0, tempFactor(tile.temperature)));
+      }
+
+      this.populationPressure[i] *= 0.995;
+
+      if (doTerrainEvolution && tile.terrain !== Terrain.DeepWater && tile.terrain !== Terrain.ShallowWater) {
+        const pressure = this.populationPressure[i];
+
+        if (tile.terrain === Terrain.Grass && tile.fertility > 0.7
+            && tile.humidity > 0.5 && tile.temperature > 5 && tile.temperature < 35
+            && pressure < 2) {
+          if (this.rng.next() < 0.002) {
+            tile.terrain = Terrain.Forest;
+            tile.fertility = Math.min(1, tile.fertility + 0.1);
+          }
+        }
+
+        if (tile.terrain === Terrain.Forest && pressure > 15) {
+          if (this.rng.next() < 0.005) {
+            tile.terrain = Terrain.Grass;
+            tile.fertility *= 0.8;
+          }
+        }
+
+        if (tile.terrain === Terrain.Grass && pressure > 25) {
+          if (this.rng.next() < 0.003) {
+            tile.terrain = Terrain.Sand;
+            tile.fertility *= 0.5;
+          }
+        }
+
+        if (tile.terrain === Terrain.Sand && tile.humidity > 0.4
+            && tile.temperature > 5 && pressure < 1) {
+          if (this.rng.next() < 0.001) {
+            tile.terrain = Terrain.Grass;
+            tile.fertility = Math.min(1, tile.fertility + 0.15);
+          }
+        }
+
+        if (tile.terrain === Terrain.Snow && tile.temperature > 5) {
+          if (this.rng.next() < 0.001) {
+            tile.terrain = Terrain.Mountain;
+          }
+        }
+        if (tile.terrain === Terrain.Mountain && tile.temperature < -10) {
+          if (this.rng.next() < 0.001) {
+            tile.terrain = Terrain.Snow;
+          }
+        }
       }
     }
   }

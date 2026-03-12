@@ -1,6 +1,7 @@
 export * from './types';
 export { NeuralNet } from './NeuralNet';
 export { World } from './World';
+export { SpatialGrid } from './SpatialGrid';
 export {
   SpeciesRegistry,
   createAgent,

@@ -95,7 +95,7 @@ export const WorldSelector: React.FC<WorldSelectorProps> = ({
                 value={newWidth}
                 onChange={(e) => setNewWidth(parseInt(e.target.value))}
                 min={32}
-                max={512}
+                max={1024}
               />
             </div>
             <div className="field">
@@ -105,7 +105,7 @@ export const WorldSelector: React.FC<WorldSelectorProps> = ({
                 value={newHeight}
                 onChange={(e) => setNewHeight(parseInt(e.target.value))}
                 min={32}
-                max={512}
+                max={1024}
               />
             </div>
           </div>
@@ -117,7 +117,7 @@ export const WorldSelector: React.FC<WorldSelectorProps> = ({
                 value={newAgents}
                 onChange={(e) => setNewAgents(parseInt(e.target.value))}
                 min={10}
-                max={5000}
+                max={200000}
               />
             </div>
             <div className="field">

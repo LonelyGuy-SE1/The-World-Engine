@@ -11,19 +11,22 @@ import {
   gridKey
 } from './Agent';
 import { NeuralNet } from './NeuralNet';
+import { SpatialGrid } from './SpatialGrid';
 
 export interface SimulationInstance {
   id: string;
   name: string;
   world: World;
   agents: Agent[];
-  agentGrid: Map<number, Agent[]>;
+  grid: SpatialGrid;
   speciesRegistry: SpeciesRegistry;
   tick: number;
   state: SimulationState;
   stats: WorldStats;
   statsHistory: WorldStats[];
   pendingInterventions: Intervention[];
+  processOffset: number;
+  extendedOffset: number;
 }
 
 export class Simulation {
@@ -43,33 +46,42 @@ export class Simulation {
     const rng = world.rng;
 
     const agents: Agent[] = [];
-    const agentGrid = new Map<number, Agent[]>();
+    const grid = new SpatialGrid(fullConfig.width, fullConfig.height, Math.max(fullConfig.maxAgents, 10000));
     const agentsPerSpecies = Math.floor(fullConfig.initialAgents / fullConfig.initialSpecies);
 
     for (let s = 0; s < fullConfig.initialSpecies; s++) {
       const traits = randomTraits(rng);
+      if (s === fullConfig.initialSpecies - 1) {
+        traits.aggressionBias = 0.85;
+        traits.speed = 2.0;
+        traits.size = 1.6;
+        traits.perceptionRadius = 5;
+      }
       const speciesInfo = speciesRegistry.registerSpecies(traits, 0);
 
       for (let a = 0; a < agentsPerSpecies; a++) {
         const agent = createRandomAgent(world, speciesInfo.id, traits, 0, rng);
         agents.push(agent);
-        addToGrid(agentGrid, agent, fullConfig.width);
         speciesRegistry.updatePopulation(speciesInfo.id, 1);
       }
     }
+
+    grid.rebuild(agents);
 
     const instance: SimulationInstance = {
       id,
       name,
       world,
       agents,
-      agentGrid,
+      grid,
       speciesRegistry,
       tick: 0,
       state: SimulationState.Paused,
       stats: this.computeStats(0, world, agents, speciesRegistry),
       statsHistory: [],
       pendingInterventions: [],
+      processOffset: 0,
+      extendedOffset: 0,
     };
 
     this.instances.set(id, instance);
@@ -113,41 +125,66 @@ export class Simulation {
     if (instance.state !== SimulationState.Running) return;
 
     instance.tick++;
-    const { world, agents, agentGrid, speciesRegistry, tick } = instance;
+    const { world, agents, grid, speciesRegistry } = instance;
+    const tick = instance.tick;
 
     this.processInterventions(instance);
 
-    world.updateEnvironment(tick);
+    if (tick % 5 === 0) {
+      world.updateEnvironment(tick);
+    }
+
+    grid.rebuild(agents);
+
+    const agentCount = agents.length;
+    const maxBatch = Math.min(
+      agentCount,
+      agentCount <= 2000 ? agentCount : agentCount <= 10000 ? 2000 : agentCount <= 40000 ? 1200 : 700
+    );
+    const batchSize = Math.min(maxBatch, agentCount);
+    const start = instance.processOffset % Math.max(1, agentCount);
 
     const newChildren: Agent[] = [];
+    const nearbyBuf: Agent[] = [];
 
-    for (const agent of agents) {
+    for (let b = 0; b < batchSize; b++) {
+      const aIdx = (start + b) % agentCount;
+      const agent = agents[aIdx];
       if (!agent.alive) continue;
 
-      const pr = Math.ceil(agent.genome.traits.perceptionRadius);
-      const nearbyAgents: Agent[] = [];
+      nearbyBuf.length = 0;
+      const pr = Math.min(2, Math.ceil(agent.genome.traits.perceptionRadius));
+      outer:
       for (let dy = -pr; dy <= pr; dy++) {
+        const ny = agent.y + dy;
+        if (ny < 0 || ny >= world.height) continue;
         for (let dx = -pr; dx <= pr; dx++) {
-          if (dx === 0 && dy === 0) continue;
-          const key = gridKey(agent.x + dx, agent.y + dy, world.width);
-          const atTile = agentGrid.get(key);
-          if (atTile) {
-            for (const a of atTile) {
-              if (a.alive) nearbyAgents.push(a);
-            }
+          const nx = agent.x + dx;
+          if (nx < 0 || nx >= world.width) continue;
+          let gIdx = grid.firstAt(nx, ny);
+          while (gIdx >= 0) {
+            const a = agents[gIdx];
+            if (a.alive && a.id !== agent.id) nearbyBuf.push(a);
+            gIdx = grid.next(gIdx);
+            if (nearbyBuf.length >= 12) break outer;
           }
         }
       }
-      const ownKey = gridKey(agent.x, agent.y, world.width);
-      const ownTile = agentGrid.get(ownKey);
-      if (ownTile) {
-        for (const a of ownTile) {
-          if (a.alive && a.id !== agent.id) nearbyAgents.push(a);
-        }
-      }
 
-      const action = decideAction(agent, world, nearbyAgents);
-      executeAction(agent, action, world, agentGrid);
+      if (nearbyBuf.length === 0) {
+        const tile = world.tileAt(agent.x, agent.y);
+        if (agent.energy < 60 && tile.foodResource > 5) {
+          executeAction(agent, 5, world, agents, grid);
+        } else if (agent.energy >= 80 && agent.genome.traits.reproductionThreshold * 100 <= agent.energy) {
+          executeAction(agent, 6, world, agents, grid);
+        } else {
+          const dirs = [0, 1, 2, 3, 4];
+          executeAction(agent, dirs[(tick + agent.id) % 5], world, agents, grid);
+        }
+      } else {
+        const action = decideAction(agent, world, nearbyBuf);
+        executeAction(agent, action, world, agents, grid);
+      }
 
       if ((agent as any)._pendingChild) {
         const child = (agent as any)._pendingChild as Agent;
@@ -155,46 +192,80 @@ export class Simulation {
         newChildren.push(child);
         delete (agent as any)._pendingChild;
       }
-
-      updateAgentLifecycle(agent);
-
-      const tile = world.tileAt(agent.x, agent.y);
-      applyTemperatureStress(agent, tile);
-
-      if (tile.hazard > 0) {
-        agent.health -= tile.hazard * 5;
-        agent.psychology.fear = Math.min(1, agent.psychology.fear + tile.hazard * 0.1);
-      }
     }
+
+    instance.processOffset = (start + batchSize) % Math.max(1, agentCount);
+
+    let writeIdx = 0;
+    for (let i = 0; i < agents.length; i++) {
+      const a = agents[i];
+      a.age++;
+      const t = a.genome.traits;
+      a.energy -= 0.15 * t.metabolism * (0.5 + t.size * 0.5);
+      if (a.age > a.maxAge * 0.8) {
+        a.health -= (a.age - a.maxAge * 0.8) / (a.maxAge * 0.2) * 0.5;
+      }
+      if (a.energy <= 0) { a.health -= 5; a.energy = 0; }
+
+      if (a.health <= 0 || a.age >= a.maxAge || !a.alive) {
+        a.alive = false;
+        speciesRegistry.updatePopulation(a.species, -1);
+        const tile = world.tileAt(a.x, a.y);
+        tile.foodResource = Math.min(100, tile.foodResource + a.energy * 0.5);
+        this.onAgentDeath?.(instance.id, a);
+        continue;
+      }
+
+      if (writeIdx !== i) agents[writeIdx] = a;
+      writeIdx++;
+    }
+    agents.length = writeIdx;
 
     for (const child of newChildren) {
       if (agents.length < world.config.maxAgents) {
         agents.push(child);
-        addToGrid(agentGrid, child, world.width);
         speciesRegistry.updatePopulation(child.species, 1);
         this.onAgentBirth?.(instance.id, child);
       }
     }
 
-    for (let i = agents.length - 1; i >= 0; i--) {
-      if (!agents[i].alive) {
-        const dead = agents[i];
-        speciesRegistry.updatePopulation(dead.species, -1);
+    if (tick % 5 === 0) {
+      const extCount = agents.length;
+      const extBatch = Math.min(Math.max(5000, Math.floor(extCount / 5)), extCount);
+      const extStart = instance.extendedOffset % Math.max(1, extCount);
+      for (let i = 0; i < extBatch; i++) {
+        const idx = (extStart + i) % extCount;
+        const agent = agents[idx];
 
-        const key = gridKey(dead.x, dead.y, world.width);
-        const list = agentGrid.get(key);
-        if (list) {
-          const idx = list.indexOf(dead);
-          if (idx >= 0) list.splice(idx, 1);
-          if (list.length === 0) agentGrid.delete(key);
+        agent.psychology.hunger = Math.min(1, agent.psychology.hunger + 0.025);
+        agent.psychology.fatigue = Math.min(1, agent.psychology.fatigue + 0.015);
+        agent.psychology.fear = Math.max(0, agent.psychology.fear - 0.05);
+        agent.psychology.aggression *= 0.975;
+        agent.psychology.curiosity = Math.min(1, agent.psychology.curiosity + 0.01);
+
+        const tile = world.tileAt(agent.x, agent.y);
+        applyTemperatureStress(agent, tile);
+
+        if (tile.hazard > 0) {
+          agent.health -= tile.hazard * 25;
+          agent.psychology.fear = Math.min(1, agent.psychology.fear + tile.hazard * 0.5);
         }
 
-        const tile = world.tileAt(dead.x, dead.y);
-        tile.foodResource = Math.min(100, tile.foodResource + dead.energy * 0.5);
+        world.recordAgentPresence(agent.x, agent.y);
+        world.claimTerritory(agent.x, agent.y, agent.species);
 
-        this.onAgentDeath?.(instance.id, dead);
-        agents.splice(i, 1);
+        if (agent.memory.length > 30) {
+          agent.memory.length = 15;
+        }
+
+        const tIdx = agent.y * world.width + agent.x;
+        const owner = world.territoryOwner[tIdx];
+        if (owner > 0 && owner !== agent.species && world.territoryStrength[tIdx] > 0.3) {
+          agent.psychology.fear = Math.min(1, agent.psychology.fear + 0.1);
+          agent.psychology.aggression = Math.min(1, agent.psychology.aggression + 0.05);
+        }
       }
+      instance.extendedOffset = (extStart + extBatch) % Math.max(1, extCount);
     }
 
     for (const sp of speciesRegistry.species.values()) {
@@ -218,7 +289,7 @@ export class Simulation {
 
   step(ticksPerFrame: number = this.speed): void {
     const count = Math.min(ticksPerFrame, this.maxTicksPerFrame);
-    const deadline = performance.now() + 12; // ~12ms budget to leave room for rendering
+    const deadline = performance.now() + 14; // ~12ms budget to leave room for rendering
     for (const instance of this.instances.values()) {
       if (instance.state === SimulationState.Running) {
         for (let i = 0; i < count; i++) {
@@ -243,7 +314,7 @@ export class Simulation {
   }
 
   private executeIntervention(instance: SimulationInstance, intervention: Intervention): void {
-    const { world, agents, agentGrid, speciesRegistry } = instance;
+    const { world, agents, grid, speciesRegistry } = instance;
 
     switch (intervention.type) {
       case InterventionType.TemperatureShift: {
@@ -264,16 +335,15 @@ export class Simulation {
       case InterventionType.IntroducePredator: {
         const count = intervention.params.count as number || 10;
         const traits = randomTraits(world.rng);
-        traits.aggressionBias = 0.9;
-        traits.speed = 1.8;
-        traits.size = 1.5;
+        traits.aggressionBias = 0.95;
+        traits.speed = 2.5;
+        traits.size = 1.8;
         traits.perceptionRadius = 6;
         const sp = speciesRegistry.registerSpecies(traits, instance.tick);
 
         for (let i = 0; i < count; i++) {
           const agent = createRandomAgent(world, sp.id, traits, instance.tick, world.rng);
           agents.push(agent);
-          addToGrid(agentGrid, agent, world.width);
           speciesRegistry.updatePopulation(sp.id, 1);
         }
         break;
@@ -340,29 +410,38 @@ export class Simulation {
   private computeStats(
     tick: number, world: World, agents: Agent[], speciesRegistry: SpeciesRegistry
   ): WorldStats {
-    const alive = agents.filter(a => a.alive);
-    const totalEnergy = alive.reduce((sum, a) => sum + a.energy, 0);
-    const totalAge = alive.reduce((sum, a) => sum + a.age, 0);
-    const totalFood = world.tiles.reduce((sum, t) => sum + t.foodResource, 0);
-    const totalTemp = world.tiles.reduce((sum, t) => sum + t.temperature, 0);
-
+    let aliveCount = 0, totalEnergy = 0, totalAge = 0, totalBirths = 0;
     const speciesPopulations = new Map<number, number>();
-    for (const a of alive) {
+    for (let i = 0; i < agents.length; i++) {
+      const a = agents[i];
+      if (!a.alive) continue;
+      aliveCount++;
+      totalEnergy += a.energy;
+      totalAge += a.age;
+      totalBirths += a.offspring;
       speciesPopulations.set(a.species, (speciesPopulations.get(a.species) || 0) + 1);
     }
 
+    let totalFood = 0, totalTemp = 0;
+    for (let i = 0; i < world.tiles.length; i++) {
+      totalFood += world.tiles[i].foodResource;
+      totalTemp += world.tiles[i].temperature;
+    }
+
     const aliveSpeciesCount = speciesRegistry.getAliveSpecies().length;
-    const totalExtinctions = Array.from(speciesRegistry.species.values())
-      .filter(s => s.extinct).length;
+    let totalExtinctions = 0;
+    for (const s of speciesRegistry.species.values()) {
+      if (s.extinct) totalExtinctions++;
+    }
 
     return {
       tick,
       year: Math.floor(tick / world.config.ticksPerYear),
-      totalAgents: alive.length,
+      totalAgents: aliveCount,
       totalSpecies: aliveSpeciesCount,
-      averageEnergy: alive.length > 0 ? totalEnergy / alive.length : 0,
-      averageAge: alive.length > 0 ? totalAge / alive.length : 0,
-      totalBirths: alive.reduce((sum, a) => sum + a.offspring, 0),
+      averageEnergy: aliveCount > 0 ? totalEnergy / aliveCount : 0,
+      averageAge: aliveCount > 0 ? totalAge / aliveCount : 0,
+      totalBirths,
       totalDeaths: 0,
       averageTemperature: totalTemp / world.tiles.length,
       totalFood,

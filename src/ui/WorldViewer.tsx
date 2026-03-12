@@ -13,6 +13,7 @@ interface WorldViewerProps {
   onSelectAgent: (agent: Agent | null) => void;
   onSelectTile: (x: number, y: number) => void;
   renderConfig: RenderConfig;
+  placementTool: string;
 }
 
 export const WorldViewer: React.FC<WorldViewerProps> = ({
@@ -21,12 +22,14 @@ export const WorldViewer: React.FC<WorldViewerProps> = ({
   onSelectAgent,
   onSelectTile,
   renderConfig,
+  placementTool,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<CanvasRenderer | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const animFrameRef = useRef<number>(0);
   const isDragging = useRef(false);
+  const isPainting = useRef(false);
   const lastMouse = useRef({ x: 0, y: 0 });
 
   // Initialize renderer
@@ -79,16 +82,13 @@ export const WorldViewer: React.FC<WorldViewerProps> = ({
   useEffect(() => {
     const animate = () => {
       if (instance && rendererRef.current) {
-        // Run simulation ticks
-        simulation.step();
-
-        // Render
         rendererRef.current.render(
           instance.world,
           instance.agents,
           instance.speciesRegistry,
           instance.tick,
         );
+        simulation.step();
       }
       animFrameRef.current = requestAnimationFrame(animate);
     };
@@ -98,22 +98,54 @@ export const WorldViewer: React.FC<WorldViewerProps> = ({
   }, [instance, simulation]);
 
   // Mouse handlers
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    isDragging.current = true;
-    lastMouse.current = { x: e.clientX, y: e.clientY };
-  }, []);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isDragging.current && rendererRef.current) {
-      const dx = lastMouse.current.x - e.clientX;
-      const dy = lastMouse.current.y - e.clientY;
-      rendererRef.current.pan(dx, dy);
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (placementTool !== "none") {
+        isPainting.current = true;
+        if (!rendererRef.current || !instance) return;
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const worldPos = rendererRef.current.screenToWorld(
+          e.clientX - rect.left,
+          e.clientY - rect.top,
+        );
+        onSelectTile(worldPos.x, worldPos.y);
+      } else {
+        isDragging.current = true;
+      }
       lastMouse.current = { x: e.clientX, y: e.clientY };
-    }
-  }, []);
+    },
+    [placementTool, instance, onSelectTile],
+  );
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (
+        isPainting.current &&
+        placementTool !== "none" &&
+        rendererRef.current &&
+        instance
+      ) {
+        const rect = canvasRef.current?.getBoundingClientRect();
+        if (!rect) return;
+        const worldPos = rendererRef.current.screenToWorld(
+          e.clientX - rect.left,
+          e.clientY - rect.top,
+        );
+        onSelectTile(worldPos.x, worldPos.y);
+      } else if (isDragging.current && rendererRef.current) {
+        const dx = lastMouse.current.x - e.clientX;
+        const dy = lastMouse.current.y - e.clientY;
+        rendererRef.current.pan(dx, dy);
+        lastMouse.current = { x: e.clientX, y: e.clientY };
+      }
+    },
+    [placementTool, instance, onSelectTile],
+  );
 
   const handleMouseUp = useCallback(() => {
     isDragging.current = false;
+    isPainting.current = false;
   }, []);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -133,6 +165,7 @@ export const WorldViewer: React.FC<WorldViewerProps> = ({
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       if (!rendererRef.current || !instance) return;
+      if (placementTool !== "none") return;
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
 
@@ -143,7 +176,6 @@ export const WorldViewer: React.FC<WorldViewerProps> = ({
 
       onSelectTile(worldPos.x, worldPos.y);
 
-      // Find agent at clicked position
       const agent = instance.agents.find(
         (a) => a.alive && a.x === worldPos.x && a.y === worldPos.y,
       );
@@ -153,7 +185,7 @@ export const WorldViewer: React.FC<WorldViewerProps> = ({
         rendererRef.current.config.selectedAgentId = agent?.id ?? null;
       }
     },
-    [instance, onSelectAgent, onSelectTile],
+    [instance, onSelectAgent, onSelectTile, placementTool],
   );
 
   return (
@@ -163,7 +195,12 @@ export const WorldViewer: React.FC<WorldViewerProps> = ({
         width: "100%",
         height: "100%",
         overflow: "hidden",
-        cursor: isDragging.current ? "grabbing" : "grab",
+        cursor:
+          placementTool !== "none"
+            ? "crosshair"
+            : isDragging.current
+              ? "grabbing"
+              : "grab",
       }}
     >
       <canvas

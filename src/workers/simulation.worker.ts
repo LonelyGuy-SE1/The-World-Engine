@@ -7,6 +7,7 @@ import {
   executeAction, updateAgentLifecycle, applyTemperatureStress,
   addToGrid, rebuildGrid, gridKey
 } from '../engine/Agent';
+import { SpatialGrid } from '../engine/SpatialGrid';
 
 export type WorkerInMessage =
   | { type: 'init'; config: Partial<WorldConfig>; id: string }
@@ -36,6 +37,7 @@ export type WorkerOutMessage =
 let world: World | null = null;
 let agents: Agent[] = [];
 let agentGrid: Map<number, Agent[]> = new Map();
+let grid: SpatialGrid | null = null;
 let speciesRegistry: SpeciesRegistry = new SpeciesRegistry();
 let tick = 0;
 let running = false;
@@ -52,6 +54,7 @@ self.onmessage = (e: MessageEvent<WorkerInMessage>) => {
         world = new World(config);
         agents = [];
         agentGrid = new Map();
+        grid = new SpatialGrid(config.width, config.height, config.maxAgents);
         speciesRegistry = new SpeciesRegistry();
         tick = 0;
         instanceId = msg.id;
@@ -159,7 +162,8 @@ function simulateTick(): void {
     }
 
     const action = decideAction(agent, world, nearbyAgents);
-    executeAction(agent, action, world, agentGrid);
+    grid!.rebuild(agents);
+    executeAction(agent, action, world, agents, grid!);
 
     if ((agent as any)._pendingChild) {
       const child = (agent as any)._pendingChild as Agent;

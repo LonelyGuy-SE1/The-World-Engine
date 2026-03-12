@@ -45,6 +45,21 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     <div className="panel control-panel">
       <h3>Simulation Control</h3>
 
+      <div className="mode-toggle-row">
+        <button
+          className={`mode-btn ${!renderConfig.detailedMode ? "active" : ""}`}
+          onClick={() => onUpdateRenderConfig({ detailedMode: false })}
+        >
+          Standard
+        </button>
+        <button
+          className={`mode-btn ${renderConfig.detailedMode ? "active" : ""}`}
+          onClick={() => onUpdateRenderConfig({ detailedMode: true })}
+        >
+          Detailed
+        </button>
+      </div>
+
       <div className="control-row">
         <button
           className={`btn ${isRunning ? "btn-warning" : "btn-primary"}`}

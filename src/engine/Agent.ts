@@ -5,9 +5,10 @@ import {
 } from './types';
 import { NeuralNet } from './NeuralNet';
 import { World } from './World';
+import { SpatialGrid } from './SpatialGrid';
 
 const INPUT_SIZE = 39;
-const HIDDEN_SIZES = [28, 16];
+const HIDDEN_SIZES = [16];
 const OUTPUT_SIZE = ACTION_COUNT;
 
 export const BRAIN_CONFIG: NeuralNetConfig = {
@@ -239,34 +240,26 @@ export function buildInputVector(agent: Agent, world: World, nearbyAgents: Agent
   input[idx++] = count > 0 ? avgHazard / count : 0;
   input[idx++] = bestDir / 8;
 
-  const sorted = nearbyAgents
-    .filter(a => a.id !== agent.id && a.alive)
-    .map(a => ({
-      a,
-      dist: Math.abs(a.x - agent.x) + Math.abs(a.y - agent.y),
-    }))
-    .sort((a, b) => a.dist - b.dist)
-    .slice(0, 3);
-
-  for (let i = 0; i < 3; i++) {
-    if (i < sorted.length) {
-      const other = sorted[i].a;
-      const pr = Math.max(1, agent.genome.traits.perceptionRadius);
-      input[idx++] = (other.x - agent.x) / pr;
-      input[idx++] = (other.y - agent.y) / pr;
-      input[idx++] = other.species === agent.species ? 1 : -1;
-      input[idx++] = (other.energy - agent.energy) / 100;
-    } else {
-      input[idx++] = 0;
-      input[idx++] = 0;
-      input[idx++] = 0;
-      input[idx++] = 0;
-    }
+  const pr = Math.max(1, agent.genome.traits.perceptionRadius);
+  let c0: Agent | null = null, d0 = Infinity;
+  let c1: Agent | null = null, d1 = Infinity;
+  let c2: Agent | null = null, d2 = Infinity;
+  for (let ni = 0; ni < nearbyAgents.length; ni++) {
+    const na = nearbyAgents[ni];
+    if (na.id === agent.id || !na.alive) continue;
+    const d = Math.abs(na.x - agent.x) + Math.abs(na.y - agent.y);
+    if (d < d0) { c2 = c1; d2 = d1; c1 = c0; d1 = d0; c0 = na; d0 = d; }
+    else if (d < d1) { c2 = c1; d2 = d1; c1 = na; d1 = d; }
+    else if (d < d2) { c2 = na; d2 = d; }
   }
+  if (c0) { input[idx++] = (c0.x - agent.x) / pr; input[idx++] = (c0.y - agent.y) / pr; input[idx++] = c0.species === agent.species ? 1 : -1; input[idx++] = (c0.energy - agent.energy) / 100; } else { idx += 4; }
+  if (c1) { input[idx++] = (c1.x - agent.x) / pr; input[idx++] = (c1.y - agent.y) / pr; input[idx++] = c1.species === agent.species ? 1 : -1; input[idx++] = (c1.energy - agent.energy) / 100; } else { idx += 4; }
+  if (c2) { input[idx++] = (c2.x - agent.x) / pr; input[idx++] = (c2.y - agent.y) / pr; input[idx++] = c2.species === agent.species ? 1 : -1; input[idx++] = (c2.energy - agent.energy) / 100; } else { idx += 4; }
 
   let foodDx = 0, foodDy = 0, dangerDx = 0, dangerDy = 0;
   let foodCount = 0, dangerCount = 0;
-  for (const mem of agent.memory) {
+  for (let mi = 0; mi < agent.memory.length; mi++) {
+    const mem = agent.memory[mi];
     if (mem.type === 'food') {
       foodDx += mem.x - agent.x;
       foodDy += mem.y - agent.y;
@@ -277,7 +270,6 @@ export function buildInputVector(agent: Agent, world: World, nearbyAgents: Agent
       dangerCount++;
     }
   }
-  const pr = Math.max(1, agent.genome.traits.perceptionRadius);
   input[idx++] = foodCount > 0 ? foodDx / foodCount / pr : 0;
   input[idx++] = foodCount > 0 ? foodDy / foodCount / pr : 0;
   input[idx++] = dangerCount > 0 ? dangerDx / dangerCount / pr : 0;
@@ -298,6 +290,48 @@ function getCachedBrain(weights: Float32Array): NeuralNet {
 }
 
 export function decideAction(agent: Agent, world: World, nearbyAgents: Agent[]): AgentAction {
+  const traits = agent.genome.traits;
+  const isPredator = traits.aggressionBias > 0.6;
+
+  if (isPredator && agent.energy < 75) {
+    let closestPrey: Agent | null = null;
+    let closestDist = Infinity;
+    for (let i = 0; i < nearbyAgents.length; i++) {
+      const other = nearbyAgents[i];
+      if (other.species !== agent.species && other.alive) {
+        const d = Math.abs(other.x - agent.x) + Math.abs(other.y - agent.y);
+        if (d < closestDist) { closestDist = d; closestPrey = other; }
+      }
+    }
+    if (closestPrey) {
+      if (closestDist <= 1) return AgentAction.Attack;
+      const dx = closestPrey.x - agent.x;
+      const dy = closestPrey.y - agent.y;
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        return dx > 0 ? AgentAction.MoveEast : AgentAction.MoveWest;
+      } else {
+        return dy > 0 ? AgentAction.MoveSouth : AgentAction.MoveNorth;
+      }
+    }
+  }
+
+  if (traits.aggressionBias > 0.4) {
+    for (let i = 0; i < nearbyAgents.length; i++) {
+      const other = nearbyAgents[i];
+      if (other.species !== agent.species && other.alive) {
+        const d = Math.abs(other.x - agent.x) + Math.abs(other.y - agent.y);
+        if (d <= 1) {
+          const tIdx = agent.y * world.width + agent.x;
+          const isMyTerritory = world.territoryOwner[tIdx] === agent.species;
+          const aggrChance = isMyTerritory
+            ? traits.aggressionBias * 0.7
+            : traits.aggressionBias * 0.3;
+          if (Math.random() < aggrChance) return AgentAction.Attack;
+        }
+      }
+    }
+  }
+
   const input = buildInputVector(agent, world, nearbyAgents);
   const brain = getCachedBrain(agent.genome.brainWeights);
   const output = brain.forward(input);
@@ -312,10 +346,11 @@ export function decideAction(agent: Agent, world: World, nearbyAgents: Agent[]):
 
 export function executeAction(
   agent: Agent, action: AgentAction, world: World,
-  agentGrid: Map<number, Agent[]>
+  agents: Agent[], grid: SpatialGrid
 ): void {
   agent.lastAction = action;
   const traits = agent.genome.traits;
+  const isPredator = traits.aggressionBias > 0.6;
 
   switch (action) {
     case AgentAction.MoveNorth:
@@ -331,14 +366,12 @@ export function executeAction(
         const tile = world.tileAt(nx, ny);
         const tileIdx = world.tileIndex(agent.x, agent.y);
         const windFactor = 1 - (world.windX[tileIdx] * dx + world.windY[tileIdx] * dy) * 0.5;
-        const moveCost = TERRAIN_MOVEMENT_COST[tile.terrain] * traits.size / traits.speed * Math.max(0.5, windFactor);
+        const predatorBonus = isPredator ? 0.55 : 1.0;
+        const moveCost = TERRAIN_MOVEMENT_COST[tile.terrain] * traits.size / traits.speed * Math.max(0.5, windFactor) * predatorBonus;
         if (agent.energy >= moveCost) {
-          removeFromGrid(agentGrid, agent, world.width);
           agent.x = nx;
           agent.y = ny;
-          addToGrid(agentGrid, agent, world.width);
           agent.energy -= moveCost;
-
           agent.psychology.curiosity = Math.max(0, agent.psychology.curiosity - 0.01);
         }
       }
@@ -353,40 +386,44 @@ export function executeAction(
         agent.energy = Math.min(100, agent.energy + eatAmount * traits.foodEfficiency);
         agent.psychology.hunger = Math.max(0, agent.psychology.hunger - 0.2);
         agent.foodEaten++;
-
         addMemory(agent, 'food', agent.x, agent.y, eatAmount / 10);
       }
       break;
     }
 
     case AgentAction.Reproduce: {
-      const energyThreshold = traits.reproductionThreshold * 100;
-      if (agent.energy >= energyThreshold) {
-        const key = gridKey(agent.x, agent.y, world.width);
-        const here = agentGrid.get(key) || [];
-        const mate = here.find(a =>
-          a.id !== agent.id &&
-          a.alive &&
-          a.species === agent.species &&
-          a.energy >= a.genome.traits.reproductionThreshold * 50
-        );
+      const threshold = isPredator
+        ? traits.reproductionThreshold * 60
+        : traits.reproductionThreshold * 100;
+      if (agent.energy >= threshold) {
+        let mate: Agent | undefined;
+        let gIdx = grid.firstAt(agent.x, agent.y);
+        while (gIdx >= 0) {
+          const a = agents[gIdx];
+          if (a.id !== agent.id && a.alive && a.species === agent.species &&
+              a.energy >= a.genome.traits.reproductionThreshold * 50) {
+            mate = a; break;
+          }
+          gIdx = grid.next(gIdx);
+        }
 
         const spawnPos = findEmptyAdjacent(agent.x, agent.y, world);
         if (spawnPos) {
           const childGenome = mate
-            ? crossoverAndMutate(agent.genome, mate.genome, agent.genome.traits.mutationRate, world.rng)
-            : mutateGenome(agent.genome, agent.genome.traits.mutationRate, world.rng);
+            ? crossoverAndMutate(agent.genome, mate.genome, traits.mutationRate, world.rng)
+            : mutateGenome(agent.genome, traits.mutationRate, world.rng);
 
+          const birthCost = isPredator ? 18 : 30;
           const child = createAgent(
             spawnPos.x, spawnPos.y, agent.species, childGenome,
             0, agent.generation + 1, agent.id
           );
-          child.energy = 30;
+          child.energy = birthCost;
 
-          agent.energy -= 30;
+          agent.energy -= birthCost;
           agent.offspring++;
           if (mate) {
-            mate.energy -= 15;
+            mate.energy -= Math.floor(birthCost * 0.4);
             mate.offspring++;
           }
 
@@ -397,14 +434,34 @@ export function executeAction(
     }
 
     case AgentAction.Attack: {
-      const key = gridKey(agent.x, agent.y, world.width);
-      const here = agentGrid.get(key) || [];
-      const target = here.find(a => a.id !== agent.id && a.alive);
+      let target: Agent | undefined;
+      let gIdx = grid.firstAt(agent.x, agent.y);
+      while (gIdx >= 0) {
+        const a = agents[gIdx];
+        if (a.id !== agent.id && a.alive) {
+          if (a.species !== agent.species || traits.aggressionBias > 0.8) {
+            target = a; break;
+          }
+        }
+        gIdx = grid.next(gIdx);
+      }
+      if (!target) {
+        const aDirs = [[-1,0],[1,0],[0,-1],[0,1]];
+        for (const [adx, ady] of aDirs) {
+          let gIdx2 = grid.firstAt(agent.x + adx, agent.y + ady);
+          while (gIdx2 >= 0) {
+            const a = agents[gIdx2];
+            if (a.alive && a.species !== agent.species) { target = a; break; }
+            gIdx2 = grid.next(gIdx2);
+          }
+          if (target) break;
+        }
+      }
       if (target) {
-        const damage = 10 * traits.size * (0.5 + traits.aggressionBias);
+        const damage = 20 * traits.size * (0.5 + traits.aggressionBias * 0.8);
         target.health -= damage;
         target.psychology.fear = Math.min(1, target.psychology.fear + 0.3);
-        agent.energy -= 3;
+        agent.energy -= 1.5;
         agent.psychology.aggression = Math.min(1, agent.psychology.aggression + 0.05);
 
         addMemory(target, 'danger', agent.x, agent.y, damage / 20);
@@ -412,8 +469,9 @@ export function executeAction(
         if (target.health <= 0) {
           target.alive = false;
           agent.kills++;
-          agent.energy = Math.min(100, agent.energy + target.energy * 0.3);
-          addMemory(agent, 'food', target.x, target.y, 0.5);
+          agent.energy = Math.min(100, agent.energy + target.energy * 0.7 + 20);
+          agent.health = Math.min(agent.maxHealth, agent.health + 8);
+          addMemory(agent, 'food', target.x, target.y, 0.9);
         }
       }
       break;
@@ -436,7 +494,7 @@ export function updateAgentLifecycle(agent: Agent): void {
   agent.age++;
   const traits = agent.genome.traits;
 
-  const baseDrain = 0.3 * traits.metabolism * (0.5 + traits.size * 0.5);
+  const baseDrain = 0.15 * traits.metabolism * (0.5 + traits.size * 0.5);
   agent.energy -= baseDrain;
 
   agent.psychology.hunger = Math.min(1, agent.psychology.hunger + 0.005);

@@ -173,16 +173,16 @@ export interface WorldConfig {
 }
 
 export const DEFAULT_WORLD_CONFIG: WorldConfig = {
-  width: 128,
-  height: 128,
-  initialAgents: 200,
-  initialSpecies: 5,
+  width: 256,
+  height: 256,
+  initialAgents: 300,
+  initialSpecies: 6,
   baseTemperature: 15,
   temperatureVariance: 40,
-  resourceRegrowRate: 0.02,
+  resourceRegrowRate: 0.03,
   weatherEnabled: true,
   mutationEnabled: true,
-  maxAgents: 5000,
+  maxAgents: 200000,
   ticksPerYear: 365,
   seed: Date.now(),
 };

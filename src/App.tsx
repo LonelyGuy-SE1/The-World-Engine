@@ -21,6 +21,7 @@ import {
   ChartIcon,
   GlobeIcon,
 } from "./ui/Icons";
+import { MultiWorldViewer } from "./ui/MultiWorldViewer";
 import "./App.css";
 
 type SideTab = "control" | "inspector" | "experiment" | "dashboard" | "worlds";
@@ -45,6 +46,7 @@ export const App: React.FC = () => {
   const [placementTool, setPlacementTool] = useState("none");
   const [placementRadius, setPlacementRadius] = useState(5);
   const [placementIntensity, setPlacementIntensity] = useState(0.5);
+  const [viewMode, setViewMode] = useState<"single" | "multi">("single");
 
   // Initialize with a default world
   useEffect(() => {
@@ -95,10 +97,13 @@ export const App: React.FC = () => {
     [simulation],
   );
 
-  const handleSelectAgent = useCallback((agent: Agent | null) => {
-    setSelectedAgent(agent);
-    if (agent) setActiveTab("inspector");
-  }, []);
+  const handleSelectAgent = useCallback(
+    (agent: Agent | null) => {
+      setSelectedAgent(agent);
+      if (agent && placementTool === "none") setActiveTab("inspector");
+    },
+    [placementTool],
+  );
 
   const handleSelectTile = useCallback(
     (x: number, y: number) => {
@@ -145,7 +150,9 @@ export const App: React.FC = () => {
   const handleCreateWorld = useCallback(
     (name: string, config: Partial<WorldConfig>) => {
       simulation.createInstance(name, config);
-      setInstances(Array.from(simulation.instances.values()));
+      const newInstances = Array.from(simulation.instances.values());
+      setInstances(newInstances);
+      if (newInstances.length > 1) setViewMode("multi");
     },
     [simulation],
   );
@@ -169,6 +176,17 @@ export const App: React.FC = () => {
     [simulation],
   );
 
+  const handleExpandInstance = useCallback(
+    (id: string) => {
+      simulation.activeInstanceId = id;
+      setSelectedAgent(null);
+      setSelectedTile(null);
+      setViewMode("single");
+      forceUpdate((n) => n + 1);
+    },
+    [simulation],
+  );
+
   return (
     <div className="app">
       {/* Header */}
@@ -180,6 +198,16 @@ export const App: React.FC = () => {
           </span>
         </div>
         <div className="header-stats">
+          {instances.length > 1 && (
+            <button
+              className={`btn btn-sm ${viewMode === "multi" ? "btn-primary" : ""}`}
+              onClick={() =>
+                setViewMode(viewMode === "single" ? "multi" : "single")
+              }
+            >
+              {viewMode === "multi" ? "Single View" : "Grid View"}
+            </button>
+          )}
           {activeInstance && (
             <>
               <span className="header-stat">
@@ -297,13 +325,23 @@ export const App: React.FC = () => {
 
         {/* World viewer */}
         <main className="world-viewport">
-          <WorldViewer
-            simulation={simulation}
-            instance={activeInstance}
-            onSelectAgent={handleSelectAgent}
-            onSelectTile={handleSelectTile}
-            renderConfig={renderConfig}
-          />
+          {viewMode === "multi" && instances.length > 1 ? (
+            <MultiWorldViewer
+              instances={instances}
+              activeId={simulation.activeInstanceId}
+              onSelectInstance={handleSelectInstance}
+              onExpandInstance={handleExpandInstance}
+            />
+          ) : (
+            <WorldViewer
+              simulation={simulation}
+              instance={activeInstance}
+              onSelectAgent={handleSelectAgent}
+              onSelectTile={handleSelectTile}
+              renderConfig={renderConfig}
+              placementTool={placementTool}
+            />
+          )}
         </main>
       </div>
     </div>

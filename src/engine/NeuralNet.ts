@@ -1,5 +1,12 @@
 import { NeuralNetConfig } from './types';
 
+function fastTanh(x: number): number {
+  if (x < -3) return -1;
+  if (x > 3) return 1;
+  const x2 = x * x;
+  return x * (27 + x2) / (27 + 9 * x2);
+}
+
 export class NeuralNet {
   readonly config: NeuralNetConfig;
   readonly weights: Float32Array;
@@ -77,7 +84,7 @@ export class NeuralNet {
         if (isLastLayer) {
           outBuf[j] = sum;
         } else {
-          outBuf[j] = Math.tanh(sum);
+          outBuf[j] = fastTanh(sum);
         }
       }
 
