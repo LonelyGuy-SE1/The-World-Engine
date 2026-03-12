@@ -1,4 +1,4 @@
-# The World Engine
+# The World Engine (Outdated Readme)
 
 An artificial life simulation where thousands of neural-network-driven agents survive, reproduce, form civilizations, discover technology, and wage wars — all emergent from simple rules.
 
