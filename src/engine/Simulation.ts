@@ -12,6 +12,8 @@ import {
 } from './Agent';
 import { NeuralNet } from './NeuralNet';
 import { SpatialGrid } from './SpatialGrid';
+import { EventLog, EventType, WorldEvent } from './EventLog';
+import { CivilizationSystem, SpeciesCivilization, TECH_TREE } from './Civilization';
 
 export interface SimulationInstance {
   id: string;
@@ -27,6 +29,11 @@ export interface SimulationInstance {
   pendingInterventions: Intervention[];
   processOffset: number;
   extendedOffset: number;
+  eventLog: EventLog;
+  civilization: CivilizationSystem;
+  lastSeason: number;
+  lastPopMilestone: number;
+  statsHistoryIdx: number;
 }
 
 export class Simulation {
@@ -34,7 +41,7 @@ export class Simulation {
   activeInstanceId: string | null = null;
   speed: number = 1; // user-facing speed multiplier
   /** ticks per second at speed=1 */
-  baseTickRate: number = 2;
+  baseTickRate: number = 4;
   private _tickAccumulator: number = 0;
   private _lastStepTime: number = 0;
   onStatsUpdate?: (instanceId: string, stats: WorldStats) => void;
@@ -54,13 +61,26 @@ export class Simulation {
 
     for (let s = 0; s < fullConfig.initialSpecies; s++) {
       const traits = randomTraits(rng);
-      if (s === fullConfig.initialSpecies - 1) {
+      if (s === 0) {
+        // Human-like species
+        traits.perceptionRadius = 6;
+        traits.socialBias = 0.8;
+        traits.aggressionBias = 0.3;
+        traits.speed = 1.2;
+        traits.size = 1.0;
+        traits.metabolism = 0.8;
+        traits.foodEfficiency = 1.3;
+      } else if (s === fullConfig.initialSpecies - 1) {
         traits.aggressionBias = 0.85;
         traits.speed = 2.0;
         traits.size = 1.6;
         traits.perceptionRadius = 5;
       }
       const speciesInfo = speciesRegistry.registerSpecies(traits, 0);
+      if (s === 0) {
+        speciesInfo.name = 'Homo Sapiens';
+        speciesInfo.color = '#FFD700';
+      }
 
       for (let a = 0; a < agentsPerSpecies; a++) {
         const agent = createRandomAgent(world, speciesInfo.id, traits, 0, rng);
@@ -70,6 +90,9 @@ export class Simulation {
     }
 
     grid.rebuild(agents);
+
+    const eventLog = new EventLog();
+    const civilization = new CivilizationSystem(() => rng.next());
 
     const instance: SimulationInstance = {
       id,
@@ -85,6 +108,11 @@ export class Simulation {
       pendingInterventions: [],
       processOffset: 0,
       extendedOffset: 0,
+      eventLog,
+      civilization,
+      lastSeason: 0,
+      lastPopMilestone: 0,
+      statsHistoryIdx: 0,
     };
 
     this.instances.set(id, instance);
@@ -137,14 +165,17 @@ export class Simulation {
       world.updateEnvironment(tick);
     }
 
+    // Rebuild spatial grid each tick to stay in sync with compaction
     grid.rebuild(agents);
 
     const agentCount = agents.length;
-    const maxBatch = Math.min(
-      agentCount,
-      agentCount <= 2000 ? agentCount : agentCount <= 10000 ? 2000 : agentCount <= 40000 ? 1200 : 700
+    // Adaptive batch sizing — ensure we process a meaningful fraction even at high pop
+    const batchSize = Math.min(agentCount,
+      agentCount <= 1000 ? agentCount :
+      agentCount <= 5000 ? Math.max(800, Math.floor(agentCount * 0.4)) :
+      agentCount <= 15000 ? Math.max(600, Math.floor(agentCount * 0.15)) :
+      Math.max(400, Math.floor(agentCount * 0.05))
     );
-    const batchSize = Math.min(maxBatch, agentCount);
     const start = instance.processOffset % Math.max(1, agentCount);
 
     const newChildren: Agent[] = [];
@@ -156,12 +187,14 @@ export class Simulation {
       if (!agent.alive) continue;
 
       nearbyBuf.length = 0;
-      const pr = Math.min(2, Math.ceil(agent.genome.traits.perceptionRadius));
+      // Allow perception up to 5 tiles — the trait actually matters now
+      const pr = Math.min(5, Math.ceil(agent.genome.traits.perceptionRadius));
       outer:
       for (let dy = -pr; dy <= pr; dy++) {
         const ny = agent.y + dy;
         if (ny < 0 || ny >= world.height) continue;
         for (let dx = -pr; dx <= pr; dx++) {
+          if (dx * dx + dy * dy > pr * pr) continue; // circular radius
           const nx = agent.x + dx;
           if (nx < 0 || nx >= world.width) continue;
           let gIdx = grid.firstAt(nx, ny);
@@ -169,27 +202,14 @@ export class Simulation {
             const a = agents[gIdx];
             if (a.alive && a.id !== agent.id) nearbyBuf.push(a);
             gIdx = grid.next(gIdx);
-            if (nearbyBuf.length >= 12) break outer;
+            if (nearbyBuf.length >= 16) break outer;
           }
         }
       }
 
-      if (nearbyBuf.length === 0) {
-        const tile = world.tileAt(agent.x, agent.y);
-        if (agent.psychology.thirst > 0.5 && tile.waterResource > 10) {
-          executeAction(agent, AgentAction.Drink, world, agents, grid);
-        } else if (agent.energy < 60 && tile.foodResource > 5) {
-          executeAction(agent, AgentAction.Eat, world, agents, grid);
-        } else if (agent.energy >= 80 && agent.genome.traits.reproductionThreshold * 100 <= agent.energy) {
-          executeAction(agent, AgentAction.Reproduce, world, agents, grid);
-        } else {
-          const dirs = [0, 1, 2, 3, 4];
-          executeAction(agent, dirs[(tick + agent.id) % 5], world, agents, grid);
-        }
-      } else {
-        const action = decideAction(agent, world, nearbyBuf);
-        executeAction(agent, action, world, agents, grid);
-      }
+      // All agents go through the same decision system
+      const action = decideAction(agent, world, nearbyBuf);
+      executeAction(agent, action, world, agents, grid);
 
       if ((agent as any)._pendingChild) {
         const child = (agent as any)._pendingChild as Agent;
@@ -205,12 +225,20 @@ export class Simulation {
     for (let i = 0; i < agents.length; i++) {
       const a = agents[i];
       a.age++;
+      if (a.gestationCooldown > 0) a.gestationCooldown--;
       const t = a.genome.traits;
-      a.energy -= 0.15 * t.metabolism * (0.5 + t.size * 0.5);
+      // Base metabolic cost: smaller, slower creatures are cheaper to maintain
+      a.energy -= 0.12 * t.metabolism * (0.4 + t.size * 0.4 + t.speed * 0.2);
+      // Aging health decline (starts at 80% of max age, accelerates)
       if (a.age > a.maxAge * 0.8) {
-        a.health -= (a.age - a.maxAge * 0.8) / (a.maxAge * 0.2) * 0.5;
+        a.health -= (a.age - a.maxAge * 0.8) / (a.maxAge * 0.2) * 0.4;
       }
-      if (a.energy <= 0) { a.health -= 5; a.energy = 0; }
+      // Starvation damage
+      if (a.energy <= 0) { a.health -= 3; a.energy = 0; }
+      // Dehydration damage
+      if (a.psychology.thirst > 0.9) {
+        a.health -= (a.psychology.thirst - 0.9) * 5;
+      }
 
       if (a.health <= 0 || a.age >= a.maxAge || !a.alive) {
         a.alive = false;
@@ -277,18 +305,45 @@ export class Simulation {
     for (const sp of speciesRegistry.species.values()) {
       if (sp.population <= 0 && !sp.extinct) {
         speciesRegistry.markExtinct(sp.id, tick);
+        instance.eventLog.log(tick, EventType.Extinction,
+          `${sp.name} has gone extinct! (lived ${tick - sp.originTick} ticks)`,
+          { speciesId: sp.id }
+        );
       }
     }
 
-    if (tick % 10 === 0) {
+    // Season change detection
+    const tpy = world.config.ticksPerYear;
+    const currentSeason = Math.floor((tick % tpy) / (tpy / 4));
+    if (currentSeason !== instance.lastSeason) {
+      const seasonNames = ['Spring', 'Summer', 'Autumn', 'Winter'];
+      instance.eventLog.log(tick, EventType.SeasonChange,
+        `${seasonNames[currentSeason]} has arrived (Year ${Math.floor(tick / tpy)})`,
+        { season: currentSeason }
+      );
+      instance.lastSeason = currentSeason;
+    }
+
+    // Civilization update every 50 ticks
+    if (tick % 50 === 0) {
+      instance.civilization.update(
+        tick, agents, speciesRegistry, instance.eventLog,
+        world.territoryOwner, world.territoryStrength, world.width
+      );
+    }
+
+    if (tick % 5 === 0) {
       instance.stats = this.computeStats(tick, world, agents, speciesRegistry);
       this.onStatsUpdate?.(instance.id, instance.stats);
 
-      if (tick % 100 === 0) {
-        instance.statsHistory.push({ ...instance.stats });
-        if (instance.statsHistory.length > 1000) {
-          instance.statsHistory.shift();
+      if (tick % 25 === 0) {
+        // Ring-buffer style: overwrite oldest instead of shift() (O(1) vs O(n))
+        if (instance.statsHistory.length < 4000) {
+          instance.statsHistory.push({ ...instance.stats });
+        } else {
+          instance.statsHistory[instance.statsHistoryIdx % 4000] = { ...instance.stats };
         }
+        instance.statsHistoryIdx++;
       }
     }
   }
@@ -298,27 +353,29 @@ export class Simulation {
     const dt = this._lastStepTime > 0 ? Math.min(now - this._lastStepTime, 200) : 16;
     this._lastStepTime = now;
 
-    // speed=0 means paused via speed, ticks = 0
     const ticksPerSec = this.baseTickRate * this.speed;
     this._tickAccumulator += (dt / 1000) * ticksPerSec;
 
-    // Cap to avoid spiral-of-death: max 200 ticks per frame
-    const maxTicks = Math.min(200, Math.ceil(this._tickAccumulator));
-    const deadline = now + 14; // leave time for render
+    if (this._tickAccumulator < 1) return;
+
+    const deadline = now + 14;
+    let maxRan = 0;
 
     for (const instance of this.instances.values()) {
-      if (instance.state === SimulationState.Running) {
-        let ran = 0;
-        while (ran < maxTicks && this._tickAccumulator >= 1) {
-          this.tick(instance);
-          this._tickAccumulator -= 1;
-          ran++;
-          if (performance.now() >= deadline) { this._tickAccumulator = 0; break; }
-        }
+      if (instance.state !== SimulationState.Running) continue;
+      let ran = 0;
+      const budget = Math.floor(this._tickAccumulator);
+      for (let i = 0; i < budget; i++) {
+        if (performance.now() >= deadline) break;
+        this.tick(instance);
+        ran++;
       }
+      if (ran > maxRan) maxRan = ran;
     }
-    // Clamp leftover
-    if (this._tickAccumulator > 5) this._tickAccumulator = 5;
+
+    // Only subtract ticks we actually ran — prevents tick loss under load
+    this._tickAccumulator -= maxRan;
+    if (this._tickAccumulator > 20) this._tickAccumulator = 20;
   }
 
   applyIntervention(instanceId: string, intervention: Intervention): void {
@@ -405,6 +462,37 @@ export class Simulation {
             }
           }
         }
+        break;
+      }
+
+      case InterventionType.SpawnCustomAgent: {
+        const count = intervention.params.count as number || 10;
+        const traits = randomTraits(world.rng);
+        // Apply any trait overrides from params
+        if (intervention.params.speed) traits.speed = intervention.params.speed as number;
+        if (intervention.params.size) traits.size = intervention.params.size as number;
+        if (intervention.params.aggressionBias !== undefined) traits.aggressionBias = intervention.params.aggressionBias as number;
+        if (intervention.params.socialBias !== undefined) traits.socialBias = intervention.params.socialBias as number;
+        if (intervention.params.perceptionRadius) traits.perceptionRadius = intervention.params.perceptionRadius as number;
+        if (intervention.params.metabolism) traits.metabolism = intervention.params.metabolism as number;
+        if (intervention.params.heatTolerance !== undefined) traits.heatTolerance = intervention.params.heatTolerance as number;
+        if (intervention.params.foodEfficiency) traits.foodEfficiency = intervention.params.foodEfficiency as number;
+
+        const sp = speciesRegistry.registerSpecies(traits, instance.tick);
+        if (intervention.params.speciesName) {
+          sp.name = intervention.params.speciesName as string;
+        }
+
+        for (let i = 0; i < count; i++) {
+          const agent = createRandomAgent(world, sp.id, traits, instance.tick, world.rng);
+          agents.push(agent);
+          speciesRegistry.updatePopulation(sp.id, 1);
+        }
+
+        instance.eventLog.log(instance.tick, EventType.NewSpecies,
+          `${sp.name} (${count} individuals) introduced to the world!`,
+          { speciesId: sp.id, count }
+        );
         break;
       }
 

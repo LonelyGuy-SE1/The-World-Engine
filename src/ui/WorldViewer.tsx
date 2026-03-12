@@ -78,7 +78,27 @@ export const WorldViewer: React.FC<WorldViewerProps> = ({
     }
   }, [renderConfig]);
 
-  // Animation loop
+  // Native wheel handler to prevent browser zoom
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onNativeWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (rendererRef.current) {
+        const rect = canvas.getBoundingClientRect();
+        const factor = e.deltaY < 0 ? 1.15 : 0.87;
+        rendererRef.current.zoomAt(
+          factor,
+          e.clientX - rect.left,
+          e.clientY - rect.top,
+        );
+      }
+    };
+    canvas.addEventListener("wheel", onNativeWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onNativeWheel);
+  }, []);
+
+  // Animation loop (render only — simulation stepped in App.tsx)
   useEffect(() => {
     const animate = () => {
       if (instance && rendererRef.current) {
@@ -88,14 +108,13 @@ export const WorldViewer: React.FC<WorldViewerProps> = ({
           instance.speciesRegistry,
           instance.tick,
         );
-        simulation.step();
       }
       animFrameRef.current = requestAnimationFrame(animate);
     };
 
     animFrameRef.current = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animFrameRef.current);
-  }, [instance, simulation]);
+  }, [instance]);
 
   // Mouse handlers
   const handleMouseDown = useCallback(
@@ -148,20 +167,6 @@ export const WorldViewer: React.FC<WorldViewerProps> = ({
     isPainting.current = false;
   }, []);
 
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    if (rendererRef.current) {
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (rect) {
-        const factor = e.deltaY < 0 ? 1.15 : 0.87;
-        rendererRef.current.zoomAt(
-          factor,
-          e.clientX - rect.left,
-          e.clientY - rect.top,
-        );
-      }
-    }
-  }, []);
-
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       if (!rendererRef.current || !instance) return;
@@ -209,9 +214,13 @@ export const WorldViewer: React.FC<WorldViewerProps> = ({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
         onClick={handleClick}
-        style={{ display: "block", width: "100%", height: "100%" }}
+        style={{
+          display: "block",
+          width: "100%",
+          height: "100%",
+          touchAction: "none",
+        }}
       />
     </div>
   );

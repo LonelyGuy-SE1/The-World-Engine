@@ -167,3 +167,231 @@ export const StepIcon: React.FC<IconProps> = ({
     <rect x="16" y="4" width="3" height="16" />
   </svg>
 );
+
+// --- Event Icons ---
+
+export const SkullIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <circle cx="12" cy="10" r="8" />
+    <path d="M12 18v4" />
+    <path d="M8 18v2" />
+    <path d="M16 18v2" />
+    <circle cx="9" cy="10" r="1.5" fill={color} />
+    <circle cx="15" cy="10" r="1.5" fill={color} />
+    <path d="M10 14h4" />
+  </svg>
+);
+
+export const LightbulbIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M9 18h6" />
+    <path d="M10 22h4" />
+    <path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z" />
+  </svg>
+);
+
+export const CastleIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <rect x="4" y="10" width="16" height="12" />
+    <rect x="2" y="6" width="4" height="4" />
+    <rect x="10" y="6" width="4" height="4" />
+    <rect x="18" y="6" width="4" height="4" />
+    <rect x="9" y="16" width="6" height="6" />
+  </svg>
+);
+
+export const SwordsIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M14.5 17.5L3 6V3h3l11.5 11.5" />
+    <path d="M13 19l6-6" />
+    <path d="M16 16l4 4" />
+    <path d="M9.5 17.5L21 6V3h-3L6.5 14.5" />
+  </svg>
+);
+
+export const ClimateIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <circle cx="12" cy="12" r="5" />
+    <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+  </svg>
+);
+
+export const WarningIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+    <line x1="12" y1="9" x2="12" y2="13" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </svg>
+);
+
+export const SeedlingIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M12 22V10" />
+    <path d="M6 14c0-4 2.5-6 6-8 3.5 2 6 4 6 8" />
+    <path d="M12 10C9 6 5 6 2 8c0 4 3 7 10 7" />
+  </svg>
+);
+
+export const CycleIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M21.5 2v6h-6" />
+    <path d="M2.5 22v-6h6" />
+    <path d="M2 11.5a10 10 0 0 1 18.8-4.3" />
+    <path d="M22 12.5a10 10 0 0 1-18.8 4.3" />
+  </svg>
+);
+
+export const TrendUpIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+    <polyline points="17 6 23 6 23 12" />
+  </svg>
+);
+
+export const StarvationIcon: React.FC<IconProps> = ({
+  size = 16,
+  color = "currentColor",
+  className,
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    className={className}
+  >
+    <path d="M12 2a10 10 0 1 0 10 10" />
+    <path d="M12 6v6l4 2" />
+    <path d="M20 4l2 2-2 2" />
+  </svg>
+);

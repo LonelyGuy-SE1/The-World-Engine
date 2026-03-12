@@ -16,6 +16,7 @@ export class World {
   windY: Float32Array;
   territoryOwner: Int32Array;
   territoryStrength: Float32Array;
+  private _weatherBlur: Float32Array;
 
   constructor(config: Partial<WorldConfig> = {}) {
     this.config = { ...DEFAULT_WORLD_CONFIG, ...config };
@@ -28,6 +29,7 @@ export class World {
     this.windY = new Float32Array(this.width * this.height);
     this.territoryOwner = new Int32Array(this.width * this.height);
     this.territoryStrength = new Float32Array(this.width * this.height);
+    this._weatherBlur = new Float32Array(this.width * this.height);
 
     this.generateTerrain();
   }
@@ -262,14 +264,14 @@ export class World {
         const depletionFactor = pressure > 5 ? 1 - (pressure - 5) * 0.015 : 1;
         const growRate = this.config.resourceRegrowRate * tile.fertility
           * growthTempFactor * (0.5 + tile.humidity * 0.5)
-          * Math.max(0.1, depletionFactor);
+          * Math.max(0.2, depletionFactor);
         tile.foodResource = Math.min(100, tile.foodResource + growRate);
 
-        // Water regrowth: water tiles regenerate fast, land tiles slowly from humidity
+        // Water regrowth: water tiles regenerate fast, land tiles from humidity/rainfall
         if (tile.terrain === Terrain.ShallowWater) {
-          tile.waterResource = Math.min(100, tile.waterResource + 0.3);
+          tile.waterResource = Math.min(100, tile.waterResource + 0.5);
         } else {
-          tile.waterResource = Math.min(100, tile.waterResource + tile.humidity * 0.03);
+          tile.waterResource = Math.min(100, tile.waterResource + tile.humidity * 0.08 + 0.01);
         }
       }
 
@@ -345,8 +347,9 @@ export class World {
       this.weatherPatterns[i] = this.weatherPatterns[i] * 0.9 + (rng.next() - 0.5) * 0.2;
     }
 
-    // Blur for spatial coherence
-    const temp = new Float32Array(this.weatherPatterns.length);
+    // Blur for spatial coherence — reuse pre-allocated buffer
+    const temp = this._weatherBlur;
+    temp.fill(0);
     for (let y = 1; y < this.height - 1; y++) {
       for (let x = 1; x < this.width - 1; x++) {
         const idx = y * this.width + x;

@@ -63,6 +63,8 @@ export interface Psychology {
   hunger: number;         // 0–1
   thirst: number;         // 0–1
   fatigue: number;        // 0–1
+  loneliness: number;     // 0–1 (increases without social contact)
+  satisfaction: number;   // 0–1 (recent successful actions)
 }
 
 // --- Genetics ---
@@ -78,6 +80,21 @@ export interface Traits {
   socialBias: number;         // innate cooperation tendency (0–1)
   heatTolerance: number;      // -1 to 1 (negative = cold-adapted, positive = heat-adapted)
   foodEfficiency: number;     // how well food is converted to energy (0.5–2.0)
+  // ── New traits ──
+  nocturnal: number;          // 0–1 activity bonus at night, penalty at day
+  camouflage: number;         // 0–1 chance to avoid detection by predators
+  packHunting: number;        // 0–1 damage bonus when allies nearby
+  toolUse: number;            // 0–1 resource gathering efficiency bonus
+  singing: number;            // 0–1 social radius boost / mate attraction
+  burrowing: number;          // 0–1 can hide underground for safety
+  venom: number;              // 0–1 extra damage on attack + DOT
+  regeneration: number;       // 0–1 passive health recovery per tick
+  flight: number;             // 0–1 can ignore terrain cost / escape predators
+  aquatic: number;            // 0–1 can move through water tiles
+  migrationDrive: number;     // 0–1 seasonal movement tendency
+  longevity: number;          // 0.5–2.0 max age multiplier
+  immuneStrength: number;     // 0–1 resistance to hazards / disease
+  learningRate: number;       // 0–1 neural net adaptation speed
 }
 
 export interface Genome {
@@ -89,7 +106,7 @@ export interface Genome {
 
 export interface MemoryEntry {
   tick: number;
-  type: 'food' | 'danger' | 'mate' | 'death' | 'social';
+  type: 'food' | 'water' | 'danger' | 'mate' | 'death' | 'social';
   x: number;
   y: number;
   intensity: number;
@@ -108,9 +125,14 @@ export enum AgentAction {
   Attack = 7,
   Rest = 8,
   Drink = 9,
+  Flee = 10,
+  Build = 11,
+  Communicate = 12,
+  Forage = 13,
+  Migrate = 14,
 }
 
-export const ACTION_COUNT = 10;
+export const ACTION_COUNT = 15;
 
 export interface Agent {
   id: number;
@@ -133,6 +155,17 @@ export interface Agent {
   foodEaten: number;
   tickBorn: number;
   parentId: number | null;
+  gestationCooldown: number;
+  // ── New agent fields ──
+  morale: number;            // 0–1 overall well-being, affects decisions
+  alliances: number[];       // IDs of bonded agents (pack/herd)
+  shelterX: number;          // home base X (-1 = none)
+  shelterY: number;          // home base Y (-1 = none)
+  venomStack: number;        // accumulated venom damage
+  isBurrowed: boolean;       // currently hiding
+  migrationTarget: { x: number; y: number } | null;
+  communicationCooldown: number;
+  totalDistanceTraveled: number;
 }
 
 // --- Species Registry ---
@@ -181,7 +214,7 @@ export const DEFAULT_WORLD_CONFIG: WorldConfig = {
   initialSpecies: 6,
   baseTemperature: 15,
   temperatureVariance: 40,
-  resourceRegrowRate: 0.03,
+  resourceRegrowRate: 0.12,
   weatherEnabled: true,
   mutationEnabled: true,
   maxAgents: 200000,

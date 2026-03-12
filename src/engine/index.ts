@@ -21,6 +21,10 @@ export {
 } from './Agent';
 export { Simulation } from './Simulation';
 export type { SimulationInstance } from './Simulation';
+export { EventLog, EventType } from './EventLog';
+export type { WorldEvent } from './EventLog';
+export { CivilizationSystem, TECH_TREE } from './Civilization';
+export type { Technology, SpeciesCivilization } from './Civilization';
 export { AIIntegration, createRLEnvironment } from './AIIntegration';
 export type { LLMConfig, GeneratedSpecies, RLEnvironment } from './AIIntegration';
 export { PluginManager } from './PluginSystem';

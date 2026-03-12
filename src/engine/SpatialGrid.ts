@@ -21,6 +21,7 @@ export class SpatialGrid {
     }
     const w = this.width;
     for (let i = 0; i < len; i++) {
+      if (!agents[i].alive) continue;
       const key = agents[i].y * w + agents[i].x;
       this.nextLink[i] = this.cellHead[key];
       this.cellHead[key] = i;

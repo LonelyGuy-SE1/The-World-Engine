@@ -8,6 +8,7 @@ import React, {
 import { Simulation, SimulationInstance } from "./engine/Simulation";
 import { Agent, SimulationState, WorldConfig } from "./engine/types";
 import { RenderConfig, DEFAULT_RENDER_CONFIG } from "./renderer/CanvasRenderer";
+import { spriteManager } from "./renderer/SpriteManager";
 import { WorldViewer } from "./ui/WorldViewer";
 import { ControlPanel } from "./ui/ControlPanel";
 import { InspectorPanel } from "./ui/InspectorPanel";
@@ -50,11 +51,14 @@ export const App: React.FC = () => {
 
   // Initialize with a default world
   useEffect(() => {
+    // Load sprite assets in background
+    spriteManager.loadAll();
+
     const inst = simulation.createInstance("Genesis", {
-      width: 128,
-      height: 128,
-      initialAgents: 150,
-      initialSpecies: 5,
+      width: 200,
+      height: 200,
+      initialAgents: 250,
+      initialSpecies: 6,
     });
     inst.state = SimulationState.Paused;
     setInstances(Array.from(simulation.instances.values()));
@@ -63,10 +67,21 @@ export const App: React.FC = () => {
     const statsInterval = setInterval(() => {
       forceUpdate((n) => n + 1);
       setInstances(Array.from(simulation.instances.values()));
-    }, 200);
+    }, 250);
 
     return () => clearInterval(statsInterval);
   }, []);
+
+  // Simulation loop — runs regardless of view mode (single or multi)
+  useEffect(() => {
+    let frame = 0;
+    const loop = () => {
+      simulation.step();
+      frame = requestAnimationFrame(loop);
+    };
+    frame = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(frame);
+  }, [simulation]);
 
   const activeInstance = simulation.getActive();
 
@@ -84,7 +99,7 @@ export const App: React.FC = () => {
     const inst = simulation.getActive();
     if (!inst || inst.state === SimulationState.Running) return;
     inst.state = SimulationState.Running;
-    simulation.step(1);
+    simulation.tick(inst);
     inst.state = SimulationState.Paused;
     forceUpdate((n) => n + 1);
   }, [simulation]);

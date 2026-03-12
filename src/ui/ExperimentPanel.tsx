@@ -1,7 +1,73 @@
 import React, { useState } from "react";
-import { InterventionType, Intervention } from "../engine/types";
+import { InterventionType, Intervention, Traits } from "../engine/types";
 import { Simulation, SimulationInstance } from "../engine/Simulation";
 import { SpeciesRegistry } from "../engine/Agent";
+
+function parseCreatureDescription(
+  desc: string,
+): Record<string, number | string> {
+  const d = desc.toLowerCase();
+  const params: Record<string, number | string> = { count: 10 };
+
+  // Extract count
+  const countMatch = d.match(/(\d+)\s*(creature|agent|individual|of\s+them)/);
+  if (countMatch)
+    params.count = Math.min(200, Math.max(1, parseInt(countMatch[1])));
+
+  // Name extraction — use first quoted string or capitalized word
+  const nameMatch = desc.match(/"([^"]+)"|'([^']+)'/);
+  if (nameMatch) params.speciesName = nameMatch[1] || nameMatch[2];
+
+  // Speed
+  if (/\b(fast|quick|swift|speedy|rapid)\b/.test(d)) params.speed = 1.8;
+  else if (/\b(slow|sluggish|lumbering|plodding)\b/.test(d)) params.speed = 0.6;
+
+  // Size
+  if (/\b(large|big|huge|giant|massive|enormous)\b/.test(d)) params.size = 1.8;
+  else if (/\b(small|tiny|mini|little|minuscule)\b/.test(d)) params.size = 0.6;
+
+  // Aggression
+  if (
+    /\b(predator|aggressive|fierce|hunter|carnivore|warrior|killer|violent)\b/.test(
+      d,
+    )
+  )
+    params.aggressionBias = 0.9;
+  else if (/\b(peaceful|gentle|herbivore|grazer|docile|passive|calm)\b/.test(d))
+    params.aggressionBias = 0.1;
+
+  // Social
+  if (/\b(social|pack|herd|swarm|colony|tribal|communal)\b/.test(d))
+    params.socialBias = 0.9;
+  else if (/\b(solitary|lone|loner|hermit|independent)\b/.test(d))
+    params.socialBias = 0.1;
+
+  // Perception
+  if (/\b(keen|sharp[\s-]eyed|eagle|perceptive|aware|vigilant)\b/.test(d))
+    params.perceptionRadius = 7;
+  else if (/\b(blind|near[\s-]sighted|oblivious)\b/.test(d))
+    params.perceptionRadius = 1;
+
+  // Heat tolerance
+  if (/\b(arctic|cold|ice|polar|frost|tundra|frozen)\b/.test(d))
+    params.heatTolerance = -0.8;
+  else if (/\b(desert|hot|tropical|heat|volcanic|fire)\b/.test(d))
+    params.heatTolerance = 0.8;
+
+  // Metabolism
+  if (/\b(efficient|endurance|hardy|resilient)\b/.test(d))
+    params.metabolism = 0.6;
+  else if (/\b(ravenous|hungry|voracious|starving)\b/.test(d))
+    params.metabolism = 1.8;
+
+  // Food efficiency
+  if (/\b(herbivore|grazer|plant[\s-]eater)\b/.test(d))
+    params.foodEfficiency = 0.8;
+  else if (/\b(omnivore|adaptable|scavenger)\b/.test(d))
+    params.foodEfficiency = 1.4;
+
+  return params;
+}
 
 interface ExperimentPanelProps {
   simulation: Simulation;
@@ -27,10 +93,23 @@ export const ExperimentPanel: React.FC<ExperimentPanelProps> = ({
     InterventionType.TemperatureShift,
   );
   const [params, setParams] = useState<Record<string, number | string>>({});
+  const [creaturePrompt, setCreaturePrompt] = useState("");
 
   if (!instance) return null;
 
   const handleApply = () => {
+    if (selectedType === InterventionType.SpawnCustomAgent) {
+      const parsed = parseCreatureDescription(creaturePrompt);
+      const intervention: Intervention = {
+        type: selectedType,
+        worldId: instance.id,
+        tick: instance.tick,
+        params: parsed as Record<string, number | string | boolean>,
+      };
+      simulation.applyIntervention(instance.id, intervention);
+      setCreaturePrompt("");
+      return;
+    }
     const intervention: Intervention = {
       type: selectedType,
       worldId: instance.id,
@@ -204,6 +283,38 @@ export const ExperimentPanel: React.FC<ExperimentPanelProps> = ({
               />
             </div>
           </>
+        )}
+
+        {selectedType === InterventionType.SpawnCustomAgent && (
+          <div className="field">
+            <label>Describe your creature</label>
+            <textarea
+              className="nlp-input"
+              placeholder='e.g. "A fast, aggressive pack hunter adapted to cold climates" or "20 tiny peaceful herbivores called Flufflings"'
+              value={creaturePrompt}
+              onChange={(e) => setCreaturePrompt(e.target.value)}
+              rows={3}
+            />
+            {creaturePrompt && (
+              <div className="parsed-traits">
+                <span className="parsed-label">Parsed traits:</span>
+                {Object.entries(parseCreatureDescription(creaturePrompt))
+                  .filter(([k]) => k !== "count" && k !== "speciesName")
+                  .map(([k, v]) => (
+                    <span key={k} className="parsed-tag">
+                      {k}:{" "}
+                      {typeof v === "number" ? (v as number).toFixed(1) : v}
+                    </span>
+                  ))}
+                {Object.keys(parseCreatureDescription(creaturePrompt)).length <=
+                  1 && (
+                  <span className="parsed-tag dim">
+                    Try: fast, large, predator, social, arctic, etc.
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {selectedType === InterventionType.ClimateEvent && (
