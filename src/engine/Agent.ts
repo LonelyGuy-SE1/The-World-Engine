@@ -824,8 +824,19 @@ export function executeAction(
       // Communicate: share info with nearby allies, form alliances
       if (agent.communicationCooldown > 0) break;
       const socialRadius = Math.ceil(traits.singing > 0.3 ? traits.perceptionRadius * 1.5 : traits.perceptionRadius);
-      for (let i = 0; i < nearbyAgents.length; i++) {
-        const other = nearbyAgents[i];
+      const commTargets: Agent[] = [];
+      for (let dy = -socialRadius; dy <= socialRadius; dy++) {
+        for (let dx = -socialRadius; dx <= socialRadius; dx++) {
+          let gIdx = grid.firstAt(agent.x + dx, agent.y + dy);
+          while (gIdx >= 0) {
+            const a = agents[gIdx];
+            if (a.alive && a.id !== agent.id) commTargets.push(a);
+            gIdx = grid.next(gIdx);
+          }
+        }
+      }
+      for (let i = 0; i < commTargets.length; i++) {
+        const other = commTargets[i];
         if (other.species === agent.species && other.alive) {
           const d = Math.abs(other.x - agent.x) + Math.abs(other.y - agent.y);
           if (d <= socialRadius) {

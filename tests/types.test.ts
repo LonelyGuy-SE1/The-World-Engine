@@ -105,8 +105,8 @@ describe('SeededRandom', () => {
 });
 
 describe('AgentAction', () => {
-  it('has 10 actions', () => {
-    expect(ACTION_COUNT).toBe(10);
+  it('has 15 actions', () => {
+    expect(ACTION_COUNT).toBe(15);
   });
 
   it('movement actions are 0-3', () => {

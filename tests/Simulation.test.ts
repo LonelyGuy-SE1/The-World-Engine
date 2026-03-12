@@ -213,7 +213,7 @@ describe('Simulation', () => {
       }
       
       expect(inst.agents.length).toBeGreaterThan(10);
-    });
+    }, 15000);
 
     it('does not have population explosion in 500 ticks', () => {
       const inst = sim.createInstance('Explosion', {

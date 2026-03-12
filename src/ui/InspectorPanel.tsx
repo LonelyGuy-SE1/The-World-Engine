@@ -21,6 +21,11 @@ const ACTION_NAMES: Record<AgentAction, string> = {
   [AgentAction.Attack]: "Attack",
   [AgentAction.Rest]: "Rest",
   [AgentAction.Drink]: "Drink",
+  [AgentAction.Flee]: "Flee",
+  [AgentAction.Build]: "Build",
+  [AgentAction.Communicate]: "Communicate",
+  [AgentAction.Forage]: "Forage",
+  [AgentAction.Migrate]: "Migrate",
 };
 
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({

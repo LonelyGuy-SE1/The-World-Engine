@@ -15,6 +15,10 @@ function defaultTraits(): Traits {
     reproductionThreshold: 0.5, mutationRate: 0.05,
     aggressionBias: 0.3, socialBias: 0.3,
     heatTolerance: 0, foodEfficiency: 1,
+    nocturnal: 0, camouflage: 0, packHunting: 0, toolUse: 0,
+    singing: 0, burrowing: 0, venom: 0, regeneration: 0,
+    flight: 0, aquatic: 0, migrationDrive: 0, longevity: 1,
+    immuneStrength: 0.5, learningRate: 0.5,
   };
 }
 
@@ -151,11 +155,11 @@ describe('Agent', () => {
   });
 
   describe('buildInputVector', () => {
-    it('returns vector of size 40', () => {
+    it('returns vector of size 52', () => {
       const world = new World({ width: 32, height: 32, seed: 42 });
       const agent = createRandomAgent(world, 1, defaultTraits(), 0, new SeededRandom(42));
       const input = buildInputVector(agent, world, []);
-      expect(input.length).toBe(40);
+      expect(input.length).toBe(52);
     });
 
     it('encodes agent state in first slots', () => {
@@ -347,7 +351,7 @@ describe('Agent', () => {
       const agent = createRandomAgent(world, 1, defaultTraits(), 0, new SeededRandom(42));
       const action = decideAction(agent, world, []);
       expect(action).toBeGreaterThanOrEqual(0);
-      expect(action).toBeLessThan(10);
+      expect(action).toBeLessThan(15);
     });
 
     it('prioritizes drinking when very thirsty', () => {
@@ -407,8 +411,10 @@ describe('Agent', () => {
       threat.y = agent.y;
       
       const action = decideAction(agent, world, [threat]);
-      // Should flee (one of the movement actions)
-      expect(action).toBeLessThanOrEqual(AgentAction.MoveWest);
+      // Should flee (Flee action or one of the movement actions)
+      const isFleeAction = action === AgentAction.Flee ||
+        (action >= AgentAction.MoveNorth && action <= AgentAction.MoveWest);
+      expect(isFleeAction).toBe(true);
     });
 
     it('is deterministic for same state', () => {
