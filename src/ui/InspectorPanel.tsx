@@ -20,6 +20,7 @@ const ACTION_NAMES: Record<AgentAction, string> = {
   [AgentAction.Reproduce]: "Reproduce",
   [AgentAction.Attack]: "Attack",
   [AgentAction.Rest]: "Rest",
+  [AgentAction.Drink]: "Drink",
 };
 
 export const InspectorPanel: React.FC<InspectorPanelProps> = ({
@@ -149,6 +150,7 @@ const AgentInspector: React.FC<{
             color="#2196F3"
           />
           <StatBar label="Hunger" value={psy.hunger} max={1} color="#795548" />
+          <StatBar label="Thirst" value={psy.thirst} max={1} color="#0288D1" />
           <StatBar
             label="Fatigue"
             value={psy.fatigue}

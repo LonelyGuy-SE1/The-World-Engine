@@ -84,12 +84,22 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         </button>
       </div>
 
-      <div className="control-row">
-        <label>Speed: {speed}x</label>
+      <div className="control-row speed-controls">
+        <label>Speed: {speed}x ({(speed * 2)} ticks/s)</label>
+        <div className="speed-presets">
+          {[1, 2, 5, 10, 25, 50, 100].map(s => (
+            <button
+              key={s}
+              className={`btn btn-xs ${speed === s ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => onSetSpeed(s)}
+            >{s}x</button>
+          ))}
+        </div>
         <input
           type="range"
           min="1"
           max="100"
+          step="1"
           value={speed}
           onChange={(e) => onSetSpeed(parseInt(e.target.value))}
         />

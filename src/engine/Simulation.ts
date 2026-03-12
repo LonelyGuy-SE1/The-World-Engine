@@ -32,8 +32,11 @@ export interface SimulationInstance {
 export class Simulation {
   instances: Map<string, SimulationInstance> = new Map();
   activeInstanceId: string | null = null;
-  speed: number = 1; // ticks per frame
-  maxTicksPerFrame: number = 100;
+  speed: number = 1; // user-facing speed multiplier
+  /** ticks per second at speed=1 */
+  baseTickRate: number = 2;
+  private _tickAccumulator: number = 0;
+  private _lastStepTime: number = 0;
   onStatsUpdate?: (instanceId: string, stats: WorldStats) => void;
   onAgentBirth?: (instanceId: string, agent: Agent) => void;
   onAgentDeath?: (instanceId: string, agent: Agent) => void;
@@ -173,10 +176,12 @@ export class Simulation {
 
       if (nearbyBuf.length === 0) {
         const tile = world.tileAt(agent.x, agent.y);
-        if (agent.energy < 60 && tile.foodResource > 5) {
-          executeAction(agent, 5, world, agents, grid);
+        if (agent.psychology.thirst > 0.5 && tile.waterResource > 10) {
+          executeAction(agent, AgentAction.Drink, world, agents, grid);
+        } else if (agent.energy < 60 && tile.foodResource > 5) {
+          executeAction(agent, AgentAction.Eat, world, agents, grid);
         } else if (agent.energy >= 80 && agent.genome.traits.reproductionThreshold * 100 <= agent.energy) {
-          executeAction(agent, 6, world, agents, grid);
+          executeAction(agent, AgentAction.Reproduce, world, agents, grid);
         } else {
           const dirs = [0, 1, 2, 3, 4];
           executeAction(agent, dirs[(tick + agent.id) % 5], world, agents, grid);
@@ -238,6 +243,7 @@ export class Simulation {
         const agent = agents[idx];
 
         agent.psychology.hunger = Math.min(1, agent.psychology.hunger + 0.025);
+        agent.psychology.thirst = Math.min(1, agent.psychology.thirst + 0.012);
         agent.psychology.fatigue = Math.min(1, agent.psychology.fatigue + 0.015);
         agent.psychology.fear = Math.max(0, agent.psychology.fear - 0.05);
         agent.psychology.aggression *= 0.975;
@@ -287,17 +293,32 @@ export class Simulation {
     }
   }
 
-  step(ticksPerFrame: number = this.speed): void {
-    const count = Math.min(ticksPerFrame, this.maxTicksPerFrame);
-    const deadline = performance.now() + 14; // ~12ms budget to leave room for rendering
+  step(): void {
+    const now = performance.now();
+    const dt = this._lastStepTime > 0 ? Math.min(now - this._lastStepTime, 200) : 16;
+    this._lastStepTime = now;
+
+    // speed=0 means paused via speed, ticks = 0
+    const ticksPerSec = this.baseTickRate * this.speed;
+    this._tickAccumulator += (dt / 1000) * ticksPerSec;
+
+    // Cap to avoid spiral-of-death: max 200 ticks per frame
+    const maxTicks = Math.min(200, Math.ceil(this._tickAccumulator));
+    const deadline = now + 14; // leave time for render
+
     for (const instance of this.instances.values()) {
       if (instance.state === SimulationState.Running) {
-        for (let i = 0; i < count; i++) {
+        let ran = 0;
+        while (ran < maxTicks && this._tickAccumulator >= 1) {
           this.tick(instance);
-          if (performance.now() >= deadline) break;
+          this._tickAccumulator -= 1;
+          ran++;
+          if (performance.now() >= deadline) { this._tickAccumulator = 0; break; }
         }
       }
     }
+    // Clamp leftover
+    if (this._tickAccumulator > 5) this._tickAccumulator = 5;
   }
 
   applyIntervention(instanceId: string, intervention: Intervention): void {

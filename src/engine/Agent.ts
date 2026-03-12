@@ -7,8 +7,8 @@ import { NeuralNet } from './NeuralNet';
 import { World } from './World';
 import { SpatialGrid } from './SpatialGrid';
 
-const INPUT_SIZE = 39;
-const HIDDEN_SIZES = [16];
+const INPUT_SIZE = 40;
+const HIDDEN_SIZES = [20];
 const OUTPUT_SIZE = ACTION_COUNT;
 
 export const BRAIN_CONFIG: NeuralNetConfig = {
@@ -152,6 +152,7 @@ export function createAgent(
       curiosity: 0.5,
       socialBonding: genome.traits.socialBias * 0.5,
       hunger: 0.3,
+      thirst: 0.2,
       fatigue: 0,
     },
     memory: [],
@@ -204,6 +205,7 @@ export function buildInputVector(agent: Agent, world: World, nearbyAgents: Agent
   input[idx++] = agent.health / agent.maxHealth;
   input[idx++] = agent.age / agent.maxAge;
   input[idx++] = agent.psychology.hunger;
+  input[idx++] = agent.psychology.thirst;
   input[idx++] = agent.psychology.fatigue;
   input[idx++] = agent.psychology.fear;
   input[idx++] = agent.psychology.aggression;
@@ -291,30 +293,64 @@ function getCachedBrain(weights: Float32Array): NeuralNet {
 
 export function decideAction(agent: Agent, world: World, nearbyAgents: Agent[]): AgentAction {
   const traits = agent.genome.traits;
+  const psy = agent.psychology;
   const isPredator = traits.aggressionBias > 0.6;
+  const tile = world.tileAt(agent.x, agent.y);
 
-  if (isPredator && agent.energy < 75) {
-    let closestPrey: Agent | null = null;
-    let closestDist = Infinity;
+  // ── SURVIVAL PRIORITY 1: Flee if about to die ──
+  if (agent.health < 20 && psy.fear > 0.5) {
+    // Move away from danger (nearest non-species agent)
+    let threatDx = 0, threatDy = 0;
     for (let i = 0; i < nearbyAgents.length; i++) {
-      const other = nearbyAgents[i];
-      if (other.species !== agent.species && other.alive) {
-        const d = Math.abs(other.x - agent.x) + Math.abs(other.y - agent.y);
-        if (d < closestDist) { closestDist = d; closestPrey = other; }
+      const o = nearbyAgents[i];
+      if (o.species !== agent.species && o.alive) {
+        threatDx += agent.x - o.x;
+        threatDy += agent.y - o.y;
       }
     }
-    if (closestPrey) {
-      if (closestDist <= 1) return AgentAction.Attack;
-      const dx = closestPrey.x - agent.x;
-      const dy = closestPrey.y - agent.y;
-      if (Math.abs(dx) >= Math.abs(dy)) {
-        return dx > 0 ? AgentAction.MoveEast : AgentAction.MoveWest;
-      } else {
-        return dy > 0 ? AgentAction.MoveSouth : AgentAction.MoveNorth;
+    if (threatDx !== 0 || threatDy !== 0) {
+      if (Math.abs(threatDx) >= Math.abs(threatDy)) {
+        return threatDx > 0 ? AgentAction.MoveEast : AgentAction.MoveWest;
       }
+      return threatDy > 0 ? AgentAction.MoveSouth : AgentAction.MoveNorth;
     }
   }
 
+  // ── SURVIVAL PRIORITY 2: Critical thirst ──
+  if (psy.thirst > 0.75) {
+    if (tile.waterResource > 8) return AgentAction.Drink;
+    // Move toward water
+    return seekTerrain(agent, world, true);
+  }
+
+  // ── SURVIVAL PRIORITY 3: Critical hunger ──
+  if (psy.hunger > 0.75 || agent.energy < 25) {
+    // Predators hunt for food
+    if (isPredator) {
+      const prey = findNearestPrey(agent, nearbyAgents);
+      if (prey) {
+        const d = Math.abs(prey.x - agent.x) + Math.abs(prey.y - agent.y);
+        if (d <= 1) return AgentAction.Attack;
+        return chaseTarget(agent, prey);
+      }
+    }
+    // Herbivores eat from tile
+    if (tile.foodResource > 5) return AgentAction.Eat;
+    // Move toward food
+    return seekTerrain(agent, world, false);
+  }
+
+  // ── PRIORITY 4: Predator hunting (not starving but wants to hunt) ──
+  if (isPredator && agent.energy < 75) {
+    const prey = findNearestPrey(agent, nearbyAgents);
+    if (prey) {
+      const d = Math.abs(prey.x - agent.x) + Math.abs(prey.y - agent.y);
+      if (d <= 1) return AgentAction.Attack;
+      return chaseTarget(agent, prey);
+    }
+  }
+
+  // ── PRIORITY 5: Territory defense ──
   if (traits.aggressionBias > 0.4) {
     for (let i = 0; i < nearbyAgents.length; i++) {
       const other = nearbyAgents[i];
@@ -332,6 +368,32 @@ export function decideAction(agent: Agent, world: World, nearbyAgents: Agent[]):
     }
   }
 
+  // ── PRIORITY 6: Thirst (moderate) ──
+  if (psy.thirst > 0.45 && tile.waterResource > 8) return AgentAction.Drink;
+
+  // ── PRIORITY 7: Hunger (moderate) ──
+  if (psy.hunger > 0.45 && tile.foodResource > 5) return AgentAction.Eat;
+
+  // ── PRIORITY 8: Rest when exhausted ──
+  if (psy.fatigue > 0.7 || agent.health < agent.maxHealth * 0.4) return AgentAction.Rest;
+
+  // ── PRIORITY 9: Reproduce if well-fed and healthy ──
+  const reproThreshold = isPredator
+    ? traits.reproductionThreshold * 60
+    : traits.reproductionThreshold * 100;
+  if (agent.energy >= reproThreshold && agent.health > agent.maxHealth * 0.5 && psy.hunger < 0.4 && psy.thirst < 0.4) {
+    // Check local carrying capacity: don't breed if area is overcrowded
+    let localPop = 0;
+    for (let i = 0; i < nearbyAgents.length; i++) {
+      if (nearbyAgents[i].species === agent.species) localPop++;
+    }
+    const localFood = tile.foodResource + tile.waterResource;
+    if (localPop < 8 && localFood > 20) {
+      return AgentAction.Reproduce;
+    }
+  }
+
+  // ── FALLBACK: Neural net decides (exploration, social behavior, curiosity) ──
   const input = buildInputVector(agent, world, nearbyAgents);
   const brain = getCachedBrain(agent.genome.brainWeights);
   const output = brain.forward(input);
@@ -342,6 +404,59 @@ export function decideAction(agent: Agent, world: World, nearbyAgents: Agent[]):
     if (r <= 0) return i as AgentAction;
   }
   return AgentAction.Stay;
+}
+
+function findNearestPrey(agent: Agent, nearby: Agent[]): Agent | null {
+  let closest: Agent | null = null;
+  let closestDist = Infinity;
+  for (let i = 0; i < nearby.length; i++) {
+    const o = nearby[i];
+    if (o.species !== agent.species && o.alive) {
+      const d = Math.abs(o.x - agent.x) + Math.abs(o.y - agent.y);
+      if (d < closestDist) { closestDist = d; closest = o; }
+    }
+  }
+  return closest;
+}
+
+function chaseTarget(agent: Agent, target: Agent): AgentAction {
+  const dx = target.x - agent.x;
+  const dy = target.y - agent.y;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    return dx > 0 ? AgentAction.MoveEast : AgentAction.MoveWest;
+  }
+  return dy > 0 ? AgentAction.MoveSouth : AgentAction.MoveNorth;
+}
+
+/** Move toward water (seekWater=true) or food (seekWater=false) */
+function seekTerrain(agent: Agent, world: World, seekWater: boolean): AgentAction {
+  const dirs: [number, number, AgentAction][] = [
+    [0, -1, AgentAction.MoveNorth], [0, 1, AgentAction.MoveSouth],
+    [1, 0, AgentAction.MoveEast], [-1, 0, AgentAction.MoveWest],
+  ];
+  let bestVal = -1, bestAct: AgentAction = AgentAction.Stay;
+  for (const [dx, dy, act] of dirs) {
+    const nx = agent.x + dx, ny = agent.y + dy;
+    if (!world.isValid(nx, ny)) continue;
+    const t = world.tileAt(nx, ny);
+    const v = seekWater ? t.waterResource : t.foodResource;
+    if (v > bestVal) { bestVal = v; bestAct = act; }
+  }
+  // If nothing nearby, use memory
+  if (bestVal <= 0) {
+    for (const mem of agent.memory) {
+      if (seekWater ? mem.type === 'food' : mem.type === 'food') {
+        const dx = mem.x - agent.x, dy = mem.y - agent.y;
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          return dx > 0 ? AgentAction.MoveEast : AgentAction.MoveWest;
+        }
+        return dy > 0 ? AgentAction.MoveSouth : AgentAction.MoveNorth;
+      }
+    }
+    // Random wander
+    return dirs[Math.floor(Math.random() * 4)][2];
+  }
+  return bestAct;
 }
 
 export function executeAction(
@@ -484,6 +599,18 @@ export function executeAction(
       break;
     }
 
+    case AgentAction.Drink: {
+      const tile = world.tileAt(agent.x, agent.y);
+      const drinkAmount = Math.min(tile.waterResource, 12);
+      if (drinkAmount > 2) {
+        tile.waterResource -= drinkAmount;
+        agent.psychology.thirst = Math.max(0, agent.psychology.thirst - 0.35);
+        agent.energy = Math.min(100, agent.energy + drinkAmount * 0.15);
+        agent.health = Math.min(agent.maxHealth, agent.health + 0.5);
+      }
+      break;
+    }
+
     case AgentAction.Stay:
     default:
       break;
@@ -498,6 +625,7 @@ export function updateAgentLifecycle(agent: Agent): void {
   agent.energy -= baseDrain;
 
   agent.psychology.hunger = Math.min(1, agent.psychology.hunger + 0.005);
+  agent.psychology.thirst = Math.min(1, agent.psychology.thirst + 0.007);
   agent.psychology.fatigue = Math.min(1, agent.psychology.fatigue + 0.003);
   agent.psychology.fear = Math.max(0, agent.psychology.fear - 0.01);
   agent.psychology.aggression *= 0.995;
@@ -511,6 +639,11 @@ export function updateAgentLifecycle(agent: Agent): void {
   if (agent.energy <= 0) {
     agent.health -= 5;
     agent.energy = 0;
+  }
+
+  // Dehydration damage
+  if (agent.psychology.thirst > 0.9) {
+    agent.health -= (agent.psychology.thirst - 0.9) * 8;
   }
 
   if (agent.health <= 0 || agent.age >= agent.maxAge) {

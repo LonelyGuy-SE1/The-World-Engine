@@ -61,6 +61,7 @@ export interface Psychology {
   curiosity: number;      // 0–1
   socialBonding: number;  // 0–1
   hunger: number;         // 0–1
+  thirst: number;         // 0–1
   fatigue: number;        // 0–1
 }
 
@@ -106,9 +107,10 @@ export enum AgentAction {
   Reproduce = 6,
   Attack = 7,
   Rest = 8,
+  Drink = 9,
 }
 
-export const ACTION_COUNT = 9;
+export const ACTION_COUNT = 10;
 
 export interface Agent {
   id: number;

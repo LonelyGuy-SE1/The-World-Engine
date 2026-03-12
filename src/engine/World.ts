@@ -264,7 +264,13 @@ export class World {
           * growthTempFactor * (0.5 + tile.humidity * 0.5)
           * Math.max(0.1, depletionFactor);
         tile.foodResource = Math.min(100, tile.foodResource + growRate);
-        tile.waterResource = Math.min(100, tile.waterResource + tile.humidity * 0.05);
+
+        // Water regrowth: water tiles regenerate fast, land tiles slowly from humidity
+        if (tile.terrain === Terrain.ShallowWater) {
+          tile.waterResource = Math.min(100, tile.waterResource + 0.3);
+        } else {
+          tile.waterResource = Math.min(100, tile.waterResource + tile.humidity * 0.03);
+        }
       }
 
       tile.pheromone *= 0.98;

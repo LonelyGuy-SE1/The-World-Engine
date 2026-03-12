@@ -105,7 +105,10 @@ export class CanvasRenderer {
       this.renderHazardOverlay(ctx, world, ts, startX, startY, endX, endY);
     }
 
-    if (ts >= 16 || this.config.detailedMode) {
+    // Visible tile area
+    const visibleTiles = (endX - startX) * (endY - startY);
+
+    if ((ts >= 16 || this.config.detailedMode) && visibleTiles < 6000) {
       this.renderCreatureSprites(ctx, agents, speciesRegistry, ts, startX, startY, endX, endY, tick);
     } else {
       this.renderAgents(ctx, agents, speciesRegistry, ts, startX, startY, endX, endY);
@@ -127,15 +130,94 @@ export class CanvasRenderer {
     this.renderHUD(ctx, tick, agents.length, world, canvasW, canvasH);
   }
 
+  // Terrain color LUT: base RGB for each terrain type
+  private static TERRAIN_RGB: [number, number, number][] = [
+    [10, 50, 140],    // DeepWater
+    [20, 100, 190],   // ShallowWater
+    [200, 180, 80],   // Sand
+    [60, 150, 55],    // Grass
+    [30, 100, 35],    // Forest
+    [100, 95, 90],    // Mountain
+    [220, 225, 230],  // Snow
+  ];
+
   private renderTiles(
     ctx: CanvasRenderingContext2D, world: World, ts: number,
     sx: number, sy: number, ex: number, ey: number
   ): void {
+    const rgb = CanvasRenderer.TERRAIN_RGB;
+    const w = world.width;
+    // Simple hash for noise variation
+    const hash = (x: number, y: number) => {
+      const h = ((x * 374761393 + y * 668265263) ^ (x * 1274126177)) >>> 0;
+      return (h & 0xff) / 255; // 0..1
+    };
+
     for (let y = sy; y < ey; y++) {
       for (let x = sx; x < ex; x++) {
         const tile = world.tileAt(x, y);
-        ctx.fillStyle = TERRAIN_COLORS[tile.terrain];
+        const t = tile.terrain;
+        const base = rgb[t];
+        const elev = tile.elevation;
+        const n = hash(x, y);
+
+        let r = base[0], g = base[1], b = base[2];
+
+        // Per-terrain variation
+        if (t === Terrain.DeepWater || t === Terrain.ShallowWater) {
+          // Water: vary with depth + subtle animation
+          const depthDark = t === Terrain.DeepWater ? (1 - elev * 1.2) : 1;
+          r = (r * depthDark + n * 8) | 0;
+          g = (g * depthDark + n * 10) | 0;
+          b = Math.min(255, (b * depthDark + n * 15 + (tile.waterResource * 0.15)) | 0);
+        } else if (t === Terrain.Grass) {
+          // Green variation by fertility + humidity
+          const lush = tile.fertility * 0.3 + tile.humidity * 0.2;
+          r = (r - n * 12 - lush * 15) | 0;
+          g = Math.min(220, (g + lush * 40 + n * 15 - (1 - tile.foodResource / 100) * 20) | 0);
+          b = (b + n * 8 - 10) | 0;
+        } else if (t === Terrain.Forest) {
+          const lush = tile.fertility * 0.4;
+          r = (r - 8 + n * 10) | 0;
+          g = Math.min(180, (g + lush * 25 + n * 15) | 0);
+          b = (b - 5 + n * 8) | 0;
+        } else if (t === Terrain.Sand) {
+          r = (r + n * 20 - 10 + tile.humidity * 10) | 0;
+          g = (g + n * 15 - 8) | 0;
+          b = (b + n * 15 + tile.humidity * 30) | 0;
+        } else if (t === Terrain.Mountain) {
+          const snowCap = tile.temperature < -5 ? 0.3 : 0;
+          r = Math.min(255, (r + elev * 30 + n * 20 + snowCap * 120) | 0);
+          g = Math.min(255, (g + elev * 25 + n * 15 + snowCap * 120) | 0);
+          b = Math.min(255, (b + elev * 20 + n * 10 + snowCap * 120) | 0);
+        } else if (t === Terrain.Snow) {
+          const sparkle = n > 0.9 ? 15 : 0;
+          r = Math.min(255, (r + n * 10 + sparkle) | 0);
+          g = Math.min(255, (g + n * 8 + sparkle) | 0);
+          b = Math.min(255, (b + n * 6 + sparkle) | 0);
+        }
+
+        // Clamp
+        r = r < 0 ? 0 : r > 255 ? 255 : r;
+        g = g < 0 ? 0 : g > 255 ? 255 : g;
+        b = b < 0 ? 0 : b > 255 ? 255 : b;
+
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
         ctx.fillRect(x * ts, y * ts, ts + 0.5, ts + 0.5);
+
+        // Food resource dots on high zoom
+        if (ts >= 10 && tile.foodResource > 30 && t !== Terrain.DeepWater) {
+          const foodAlpha = Math.min(0.6, tile.foodResource / 150);
+          ctx.fillStyle = `rgba(180,255,60,${foodAlpha})`;
+          const dotR = Math.max(1, ts * 0.08);
+          // Scatter 1-3 dots based on resource level
+          const dots = tile.foodResource > 70 ? 3 : tile.foodResource > 45 ? 2 : 1;
+          for (let d = 0; d < dots; d++) {
+            const dx = hash(x + d * 7, y + d * 3) * ts * 0.7 + ts * 0.15;
+            const dy = hash(x + d * 11, y + d * 5) * ts * 0.7 + ts * 0.15;
+            ctx.fillRect(x * ts + dx, y * ts + dy, dotR, dotR);
+          }
+        }
       }
     }
   }
@@ -310,10 +392,15 @@ export class CanvasRenderer {
     const showLabel = ts >= 40;
     const showEffects = ts >= 20;
 
+    // Cap rendered sprites to keep FPS acceptable
+    const MAX_SPRITES = 600;
+    let rendered = 0;
+
     for (let i = 0; i < agents.length; i++) {
       const a = agents[i];
       if (!a.alive) continue;
       if (a.x < sx || a.x >= ex || a.y < sy || a.y >= ey) continue;
+      if (++rendered > MAX_SPRITES) break;
 
       const color = colorCache.get(a.species) || '#ffffff';
       const rgb = rgbCache.get(a.species) || [255, 255, 255];
@@ -475,7 +562,7 @@ export class CanvasRenderer {
           ctx.lineWidth = Math.max(1, sc * 0.055);
           ctx.lineCap = 'round';
           // Mandible opening from phase
-          const mOpen = 0.3 + (la === AgentAction.Attack ? 0.5 : la === AgentAction.Eat ? 0.4 : 0.1) + phase * 0.08;
+          const mOpen = 0.3 + (la === AgentAction.Attack ? 0.5 : la === AgentAction.Eat || la === AgentAction.Drink ? 0.4 : 0.1) + phase * 0.08;
           ctx.beginPath();
           ctx.moveTo(hx + hr * 0.5, -hr * 0.15);
           ctx.quadraticCurveTo(hx + hr + ml * 0.4, -ml * mOpen * 0.6, hx + hr + ml * 0.8, -ml * mOpen);
@@ -565,6 +652,7 @@ export class CanvasRenderer {
         let icon = '';
         if (la === AgentAction.Attack) icon = '\u2694';
         else if (la === AgentAction.Eat) icon = '\u2726';
+        else if (la === AgentAction.Drink) icon = '\u{1F4A7}';
         else if (la === AgentAction.Reproduce) icon = '\u2665';
         else if (la === AgentAction.Rest) icon = 'z';
         else if (a.psychology.fear > 0.6) icon = '!';
